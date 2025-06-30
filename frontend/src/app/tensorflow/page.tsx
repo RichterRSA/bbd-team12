@@ -34,6 +34,138 @@ const loadModelAndDetect = async (webcamRef: React.RefObject<Webcam>) => {
     console.log(predictions);
 }
 
+// Function to extract bounding box around body (excluding arms)
+export const extractBodyBoundingBox = (
+    pose: poseDetection.Pose,
+    confidenceThreshold: number = 0.3,
+    padding: number = 10
+): { x: number; y: number; width: number; height: number } | null => {
+    if (!pose.keypoints || pose.keypoints.length === 0) {
+        return null;
+    }
+
+    // Define core body keypoints - focus on torso area primarily
+    const coreBodyKeypointNames = [
+        'nose', // Head reference point
+        'left_shoulder', 'right_shoulder', // Shoulders 
+        'left_hip', 'right_hip', // Hips
+    ];
+
+    // Filter keypoints to only include core body parts
+    const validBodyKeypoints = pose.keypoints.filter(keypoint => 
+        keypoint.name && 
+        coreBodyKeypointNames.includes(keypoint.name) &&
+        keypoint.score && 
+        keypoint.score > confidenceThreshold
+    );
+
+    if (validBodyKeypoints.length < 3) {
+        return null; // Need at least 3 points for a meaningful bounding box
+    }
+
+    // Find the bounds of the core body keypoints
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+
+    validBodyKeypoints.forEach(keypoint => {
+        // For shoulders, be very conservative with horizontal extent
+        if (keypoint.name === 'left_shoulder' || keypoint.name === 'right_shoulder') {
+            // Use minimal horizontal range for shoulders to focus on torso
+            const shoulderInset = 10; // Pull shoulders inward to focus on torso
+            if (keypoint.x + shoulderInset < minX) minX = keypoint.x + shoulderInset;
+            if (keypoint.x - shoulderInset > maxX) maxX = keypoint.x - shoulderInset;
+        } else {
+            // For head and hips, use normal coordinates but with slight inset
+            const bodyInset = 5;
+            if (keypoint.x + bodyInset < minX) minX = keypoint.x + bodyInset;
+            if (keypoint.x - bodyInset > maxX) maxX = keypoint.x - bodyInset;
+        }
+        
+        if (keypoint.y < minY) minY = keypoint.y;
+        if (keypoint.y > maxY) maxY = keypoint.y;
+    });
+
+    // Ensure we have valid bounds
+    if (minX >= maxX) {
+        // Fallback: use shoulder distance as width reference
+        const leftShoulder = validBodyKeypoints.find(kp => kp.name === 'left_shoulder');
+        const rightShoulder = validBodyKeypoints.find(kp => kp.name === 'right_shoulder');
+        if (leftShoulder && rightShoulder) {
+            const shoulderWidth = Math.abs(rightShoulder.x - leftShoulder.x);
+            const centerX = (leftShoulder.x + rightShoulder.x) / 2;
+            minX = centerX - shoulderWidth * 0.3; // 30% of shoulder width on each side
+            maxX = centerX + shoulderWidth * 0.3;
+        }
+    }
+
+    // Calculate tighter bounding box with reduced padding
+    const x = Math.max(0, minX - padding);
+    const y = Math.max(0, minY - padding);
+    const width = (maxX - minX) + (2 * padding);
+    const height = (maxY - minY) + (2 * padding);
+
+    return {
+        x: x,
+        y: y,
+        width: width,
+        height: height
+    };
+};
+
+// Function to draw the body bounding box on canvas
+const drawBodyBoundingBox = (
+    pose: poseDetection.Pose,
+    canvasRef: React.RefObject<HTMLCanvasElement | null>,
+    webcamRef: React.RefObject<Webcam | null>,
+    confidenceThreshold: number = 0.3
+) => {
+    const ctx = canvasRef.current?.getContext("2d");
+    const video = webcamRef.current?.video;
+
+    if (!ctx || !video) {
+        console.error("Canvas or video not ready for bounding box");
+        return;
+    }
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    // Get scaling factors
+    const videoWidth = video.videoWidth;
+    const videoHeight = video.videoHeight;
+    const displayWidth = video.clientWidth;
+    const displayHeight = video.clientHeight;
+    const scaleX = displayWidth / videoWidth;
+    const scaleY = displayHeight / videoHeight;
+
+    // Extract body bounding box
+    const boundingBox = extractBodyBoundingBox(pose, confidenceThreshold);
+    
+    if (boundingBox) {
+        // Scale bounding box to display coordinates
+        const scaledX = boundingBox.x * scaleX;
+        const scaledY = boundingBox.y * scaleY;
+        const scaledWidth = boundingBox.width * scaleX;
+        const scaledHeight = boundingBox.height * scaleY;
+
+        // Draw bounding box
+        ctx.strokeStyle = "rgba(0, 255, 0, 0.9)"; // Brighter green
+        ctx.lineWidth = 2;
+        ctx.setLineDash([3, 3]); // Smaller dashes for tighter box
+        ctx.strokeRect(scaledX, scaledY, scaledWidth, scaledHeight);
+        ctx.setLineDash([]); // Reset line dash
+
+        // Draw label with background for better visibility
+        ctx.fillStyle = "rgba(0, 255, 0, 0.8)";
+        ctx.fillRect(scaledX, scaledY - 20, 45, 16);
+        ctx.fillStyle = "rgba(0, 0, 0, 0.9)";
+        ctx.font = "12px Arial";
+        ctx.fillText("Torso", scaledX + 2, scaledY - 8);
+    }
+};
+
 // Use a lower confidence threshold for drawing at high framerates to ensure more consistent visualization
 const drawDetections = (
     detections: poseDetection.Pose[], 
@@ -144,6 +276,9 @@ const drawDetections = (
                 ctx.fill();
             }
         });
+
+        // Draw the body bounding box
+        drawBodyBoundingBox(pose, canvasRef, webcamRef, confidenceThreshold);
     }); 
 };
 
