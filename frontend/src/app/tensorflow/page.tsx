@@ -220,7 +220,7 @@ export default function TensorFlow() {
     useEffect(() => {
         let detectionIntervalId: NodeJS.Timeout | null = null;
         let detectionInProgress = false;
-        const targetDetectionInterval = 1000 / 20; // Slightly slower for stability with 60fps video
+        const targetDetectionInterval = 1000 / 30; // Slightly slower for stability with 60fps video
         
         // Function to detect poses at a more controlled rate - optimized for 60fps
         const detectPose = async () => {
@@ -336,7 +336,7 @@ export default function TensorFlow() {
                     // Disable smoothing for maximum performance
                     enableSmoothing: false,
                     // Set low threshold for faster processing
-                    minPoseScore: 0.2,
+                    minPoseScore: 0.1,
                     // No tracking
                     enableTracking: false,
                 };
