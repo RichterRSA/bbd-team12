@@ -10,11 +10,6 @@ async function requestCameraPermission() {
             video: true 
         });
         
-        // Camera access granted
-        console.log('Camera permission granted');
-        
-        // You can now use the stream for video display
-        // Don't forget to stop the stream if you're just checking permissions
         stream.getTracks().forEach(track => track.stop());
         
         return true;
@@ -38,26 +33,56 @@ const loadModelAndDetect = async (webcamRef: React.RefObject<Webcam>) => {
     console.log(predictions);
 }
 
-const drawDetections = (detections: cocossd.DetectedObject[], canvasRef: React.RefObject<HTMLCanvasElement | null>) => {
+const drawDetections = (detections: cocossd.DetectedObject[], canvasRef: React.RefObject<HTMLCanvasElement | null>, webcamRef: React.RefObject<Webcam | null>) => {
     const ctx = canvasRef.current?.getContext("2d");
+    const video = webcamRef.current?.video;
 
-    if (!ctx) {
-        console.error("Canvas not ready");
+    if (!ctx || !video) {
+        console.error("Canvas or video not ready");
         return;
     }
-    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+
+    // Set canvas dimensions to match the displayed video
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    // Get the actual video dimensions and displayed dimensions
+    const videoWidth = video.videoWidth;
+    const videoHeight = video.videoHeight;
+    const displayWidth = video.clientWidth;
+    const displayHeight = video.clientHeight;
+
+    // Set canvas size to match the displayed video
+    canvas.width = displayWidth;
+    canvas.height = displayHeight;
+
+    // Calculate scaling factors
+    const scaleX = displayWidth / videoWidth;
+    const scaleY = displayHeight / videoHeight;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
     detections.forEach(prediction => {
         if(prediction.class !== "person") {
             return;
         }
+        
         const [x, y, width, height] = prediction.bbox;
+        
+        // Scale the coordinates to match the displayed video size
+        const scaledX = x * scaleX;
+        const scaledY = y * scaleY;
+        const scaledWidth = width * scaleX;
+        const scaledHeight = height * scaleY;
+        
         const text = prediction.class;
 
         ctx.strokeStyle = "red";
         ctx.lineWidth = 2;
-        ctx.strokeRect(x, y, width, height);
+        ctx.strokeRect(scaledX, scaledY, scaledWidth, scaledHeight);
         ctx.fillStyle = "red";
-        ctx.fillText(text, x, y > 10 ? y - 5 : y + 10);
+        ctx.font = "16px Arial";
+        ctx.fillText(text, scaledX, scaledY > 20 ? scaledY - 5 : scaledY + 20);
     }); 
 };
 
@@ -66,20 +91,17 @@ export default function TensorFlow() {
     const webcamRef: React.RefObject<Webcam | null> = useRef(null);
     const canvasRef: React.RefObject<HTMLCanvasElement | null> = useRef(null);
 
-    console.log("Requesting camera permission...");
     requestCameraPermission();
-    console.log("Camera permission requested");
 
     setInterval(async () => {
         if (!webcamRef.current?.video) {
-            console.log("Webcam not ready");
             return;
         }
         if (webcamRef.current && webcamRef.current.video.readyState === 4) {
             const detections = await model!.detect(webcamRef.current.video);
-            drawDetections(detections, canvasRef);
+            drawDetections(detections, canvasRef, webcamRef);
         }
-    }, 1000); // Adjust the interval as needed
+    }, 100); // Adjust the interval as needed
     
     useEffect(() => {
         async function loadModel() {
@@ -116,8 +138,7 @@ export default function TensorFlow() {
                         position: "absolute",
                         top: 0,
                         left: 0,
-                        width: "300px",
-                        height: "300px",
+                        pointerEvents: "none", // Allow clicks to pass through to video
                     }}
                 />  
             </div>
