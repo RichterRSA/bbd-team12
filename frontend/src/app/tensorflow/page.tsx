@@ -34,6 +34,61 @@ const loadModelAndDetect = async (webcamRef: React.RefObject<Webcam>) => {
     console.log(predictions);
 }
 
+// Function to check if person is inside the crosshair circle
+const isPersonInCrosshair = (
+    pose: poseDetection.Pose,
+    videoWidth: number,
+    videoHeight: number,
+    crosshairRadius: number,
+    confidenceThreshold: number = 0.3
+): boolean => {
+    if (!pose.keypoints || pose.keypoints.length === 0) {
+        return false;
+    }
+
+    // Get key body points for center calculation
+    const coreKeypoints = pose.keypoints.filter(keypoint => 
+        keypoint.name && 
+        ['nose', 'left_shoulder', 'right_shoulder', 'left_hip', 'right_hip'].includes(keypoint.name) &&
+        keypoint.score && 
+        keypoint.score > confidenceThreshold
+    );
+
+    if (coreKeypoints.length < 3) {
+        return false;
+    }
+
+    // Calculate the center of the person
+    const avgX = coreKeypoints.reduce((sum, kp) => sum + kp.x, 0) / coreKeypoints.length;
+    const avgY = coreKeypoints.reduce((sum, kp) => sum + kp.y, 0) / coreKeypoints.length;
+
+    // Calculate frame center
+    const frameCenterX = videoWidth / 2;
+    const frameCenterY = videoHeight / 2;
+
+    // Calculate distance from person center to frame center
+    const distance = Math.sqrt(
+        Math.pow(avgX - frameCenterX, 2) + Math.pow(avgY - frameCenterY, 2)
+    );
+
+    // Check if person is within the crosshair circle
+    return distance <= crosshairRadius;
+};
+
+// Function to trigger phone vibration
+const triggerVibration = () => {
+    if (navigator.vibrate) {
+        // Vibrate for 200ms
+        navigator.vibrate(200);
+        console.log("Phone vibration triggered");
+    } else {
+        console.log("Vibration API not supported on this device");
+        // Fallback: show visual feedback
+        return false;
+    }
+    return true;
+};
+
 // Function to extract bounding box around body (excluding arms)
 export const extractBodyBoundingBox = (
     pose: poseDetection.Pose,
@@ -166,12 +221,83 @@ const drawBodyBoundingBox = (
     }
 };
 
+// Function to draw crosshair circle on canvas
+const drawCrosshair = (
+    canvasRef: React.RefObject<HTMLCanvasElement | null>,
+    webcamRef: React.RefObject<Webcam | null>,
+    crosshairRadius: number,
+    isPersonInside: boolean = false
+) => {
+    const ctx = canvasRef.current?.getContext("2d");
+    const video = webcamRef.current?.video;
+
+    if (!ctx || !video) {
+        return;
+    }
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    // Get scaling factors
+    const videoWidth = video.videoWidth;
+    const videoHeight = video.videoHeight;
+    const displayWidth = video.clientWidth;
+    const displayHeight = video.clientHeight;
+    const scaleX = displayWidth / videoWidth;
+    const scaleY = displayHeight / videoHeight;
+
+    // Calculate center of the display
+    const centerX = displayWidth / 2;
+    const centerY = displayHeight / 2;
+
+    // Scale the radius to match display coordinates
+    const scaledRadius = crosshairRadius * Math.min(scaleX, scaleY);
+
+    // Draw outer circle
+    ctx.strokeStyle = isPersonInside ? "rgba(0, 255, 0, 0.8)" : "rgba(255, 255, 255, 0.8)";
+    ctx.lineWidth = 3;
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, scaledRadius, 0, 2 * Math.PI);
+    ctx.stroke();
+
+    // Draw inner circle (smaller)
+    ctx.strokeStyle = isPersonInside ? "rgba(0, 255, 0, 0.6)" : "rgba(255, 255, 255, 0.6)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, scaledRadius * 0.7, 0, 2 * Math.PI);
+    ctx.stroke();
+
+    // Draw crosshair lines
+    ctx.strokeStyle = isPersonInside ? "rgba(0, 255, 0, 0.7)" : "rgba(255, 255, 255, 0.7)";
+    ctx.lineWidth = 2;
+    
+    // Horizontal line
+    ctx.beginPath();
+    ctx.moveTo(centerX - scaledRadius * 0.3, centerY);
+    ctx.lineTo(centerX + scaledRadius * 0.3, centerY);
+    ctx.stroke();
+    
+    // Vertical line
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY - scaledRadius * 0.3);
+    ctx.lineTo(centerX, centerY + scaledRadius * 0.3);
+    ctx.stroke();
+
+    // Draw center dot
+    ctx.fillStyle = isPersonInside ? "rgba(0, 255, 0, 0.9)" : "rgba(255, 255, 255, 0.9)";
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, 3, 0, 2 * Math.PI);
+    ctx.fill();
+};
+
 // Use a lower confidence threshold for drawing at high framerates to ensure more consistent visualization
 const drawDetections = (
     detections: poseDetection.Pose[], 
     canvasRef: React.RefObject<HTMLCanvasElement | null>, 
     webcamRef: React.RefObject<Webcam | null>,
-    highFpsMode: boolean = true
+    highFpsMode: boolean = true,
+    crosshairRadius: number = 80
 ) => {
     const ctx = canvasRef.current?.getContext("2d");
     const video = webcamRef.current?.video;
@@ -201,6 +327,17 @@ const drawDetections = (
 
     // Clear previous drawings
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Check if any person is inside crosshair for coloring
+    let anyPersonInside = false;
+    if (detections.length > 0 && video) {
+        anyPersonInside = detections.some(pose => 
+            isPersonInCrosshair(pose, video.videoWidth, video.videoHeight, crosshairRadius)
+        );
+    }
+    
+    // Draw crosshair first (so it appears behind the pose)
+    drawCrosshair(canvasRef, webcamRef, crosshairRadius, anyPersonInside);
     
     // Use a much lower confidence threshold in high FPS mode (60fps)
     const confidenceThreshold = highFpsMode ? 0.1 : 0.5;
@@ -301,6 +438,34 @@ export default function TensorFlow() {
     const detectionCountRef = useRef<number>(0);
     const lastFpsUpdateRef = useRef<number>(0);
     
+    // State for centering functionality
+    const [personCenteredStatus, setPersonCenteredStatus] = useState<boolean>(false);
+    const [vibrationStatus, setVibrationStatus] = useState<string>("");
+    const [crosshairRadius, setCrosshairRadius] = useState<number>(80); // Adjustable radius in pixels
+
+    // Function to handle center check button press
+    const handleCenterCheck = () => {
+        if (currentPosesRef.current.length > 0 && webcamRef.current?.video) {
+            const pose = currentPosesRef.current[0]; // Check first detected pose
+            const video = webcamRef.current.video;
+            const insideCrosshair = isPersonInCrosshair(pose, video.videoWidth, video.videoHeight, crosshairRadius);
+            
+            if (insideCrosshair) {
+                const vibrated = triggerVibration();
+                setVibrationStatus(vibrated ? "✅ Inside target! Phone vibrated" : "✅ Inside target! (Vibration not supported)");
+            } else {
+                setVibrationStatus("❌ Outside target - move inside the circle");
+                // Explicitly do NOT vibrate when outside
+            }
+            
+            // Clear status after 3 seconds
+            setTimeout(() => setVibrationStatus(""), 3000);
+        } else {
+            setVibrationStatus("❌ No person detected");
+            setTimeout(() => setVibrationStatus(""), 3000);
+        }
+    };
+    
     // Ensure TensorFlow is ready
     useEffect(() => {
         async function ensureTfReady() {
@@ -336,7 +501,7 @@ export default function TensorFlow() {
             
             // Draw the latest pose data at every frame for smooth animation
             if (currentPosesRef.current.length > 0) {
-                drawDetections(currentPosesRef.current, canvasRef, webcamRef, true);
+                drawDetections(currentPosesRef.current, canvasRef, webcamRef, true, crosshairRadius);
             }
             
             renderFrameId = requestAnimationFrame(renderFrame);
@@ -431,6 +596,10 @@ export default function TensorFlow() {
                     // Update the pose data
                     lastPosesRef.current = [...currentPosesRef.current];
                     currentPosesRef.current = detections;
+                    
+                    // Check if person is inside crosshair (for real-time indicator)
+                    const insideCrosshair = isPersonInCrosshair(detections[0], webcamRef.current.video.videoWidth, webcamRef.current.video.videoHeight, crosshairRadius);
+                    setPersonCenteredStatus(insideCrosshair);
                     
                     // Log successful detection for debugging
                     console.log("Detected pose at 60fps");
@@ -549,11 +718,103 @@ export default function TensorFlow() {
                             {fps > 0 && ` • Camera: ${fps} FPS`}
                             {detectionFps > 0 && ` • Detection: ${detectionFps} FPS`}
                         </div>
+                        
+                        {/* Centering indicator */}
+                        <div style={{ 
+                            position: 'absolute', 
+                            top: '10px', 
+                            right: '10px', 
+                            background: personCenteredStatus ? 'rgba(0, 255, 0, 0.8)' : 'rgba(255, 165, 0, 0.8)', 
+                            color: 'white', 
+                            padding: '5px 10px', 
+                            borderRadius: '15px', 
+                            fontSize: '12px',
+                            fontWeight: 'bold'
+                        }}>
+                            {personCenteredStatus ? '✅ Inside Target' : '⚠️ Outside Target'}
+                        </div>
+
+                        {/* Crosshair size control */}
+                        <div style={{
+                            position: 'absolute',
+                            top: '50px',
+                            right: '10px',
+                            background: 'rgba(0,0,0,0.7)',
+                            color: 'white',
+                            padding: '8px 12px',
+                            borderRadius: '8px',
+                            fontSize: '12px'
+                        }}>
+                            <div style={{ marginBottom: '5px' }}>Target Size</div>
+                            <input
+                                type="range"
+                                min="40"
+                                max="150"
+                                value={crosshairRadius}
+                                onChange={(e) => setCrosshairRadius(Number(e.target.value))}
+                                style={{
+                                    width: '100px',
+                                    cursor: 'pointer'
+                                }}
+                            />
+                            <div style={{ fontSize: '10px', textAlign: 'center', marginTop: '2px' }}>
+                                {crosshairRadius}px
+                            </div>
+                        </div>
+
+                        {/* Center check button */}
+                        <button
+                            onClick={handleCenterCheck}
+                            style={{
+                                position: 'absolute',
+                                bottom: '10px',
+                                right: '10px',
+                                background: personCenteredStatus ? '#4CAF50' : '#FF9800',
+                                color: 'white',
+                                border: 'none',
+                                padding: '12px 20px',
+                                borderRadius: '25px',
+                                fontSize: '14px',
+                                fontWeight: 'bold',
+                                cursor: 'pointer',
+                                boxShadow: '0 4px 8px rgba(0,0,0,0.3)',
+                                transition: 'all 0.2s ease',
+                                zIndex: 10
+                            }}
+                            onMouseDown={(e) => {
+                                e.currentTarget.style.transform = 'scale(0.95)';
+                            }}
+                            onMouseUp={(e) => {
+                                e.currentTarget.style.transform = 'scale(1)';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.transform = 'scale(1)';
+                            }}
+                        >
+                            📳 Check Position
+                        </button>
                     </div>
                     
                     <div style={{ marginTop: '15px' }}>
                         <h3>MoveNet Pose Detection</h3>
-                        <p>Stand in view of the camera to detect your pose.</p>
+                        <p>Stand in view of the camera and move inside the circular target. When you're inside the target area, press the button to make your phone vibrate. Adjust the target size using the slider.</p>
+                        
+                        {/* Status message display */}
+                        {vibrationStatus && (
+                            <div style={{
+                                padding: '10px 15px',
+                                borderRadius: '8px',
+                                marginBottom: '10px',
+                                backgroundColor: vibrationStatus.includes('✅') ? '#d4edda' : '#f8d7da',
+                                border: vibrationStatus.includes('✅') ? '1px solid #c3e6cb' : '1px solid #f5c6cb',
+                                color: vibrationStatus.includes('✅') ? '#155724' : '#721c24',
+                                fontSize: '14px',
+                                fontWeight: 'bold'
+                            }}>
+                                {vibrationStatus}
+                            </div>
+                        )}
+                        
                         <div style={{ 
                             marginTop: '10px', 
                             display: 'flex', 
