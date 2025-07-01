@@ -59,9 +59,19 @@ const Lobby = () => {
   useEffect(() => {
     setConnectionStatus('connecting');
     
-    // Use current protocol and hostname, proxy through nginx
-    const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
-    const socketUrl = `${protocol}//${window.location.host}`;
+    // Determine the correct socket URL based on environment
+    let socketUrl: string;
+    
+    if (process.env.NODE_ENV === 'development') {
+      // Local development - connect directly to backend
+      socketUrl = 'http://localhost:3001';
+    } else {
+      // Production - use current protocol and hostname, proxy through nginx
+      const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+      socketUrl = `${protocol}//${window.location.host}`;
+    }
+    
+    console.log(`Connecting to socket server: ${socketUrl}`);
     
     const newSocket: Socket = io(socketUrl, {
       reconnectionAttempts: 5,
