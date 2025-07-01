@@ -61,6 +61,13 @@ create_ssl_dirs() {
 generate_certificate() {
     log "Generating self-signed SSL certificate..."
     
+    # Get server hostname and IP
+    local hostname=$(hostname)
+    local server_ip=$(hostname -I | awk '{print $1}')
+    
+    log "Detected hostname: $hostname"
+    log "Detected IP: $server_ip"
+    
     # Create certificate configuration
     cat > /tmp/localhost.conf << EOF
 [req]
@@ -76,7 +83,7 @@ ST=Local
 L=Local
 O=BBD Team 12
 OU=Development
-CN=localhost
+CN=$hostname
 
 [v3_req]
 basicConstraints = CA:FALSE
@@ -86,8 +93,11 @@ subjectAltName = @alt_names
 [alt_names]
 DNS.1 = localhost
 DNS.2 = *.localhost
+DNS.3 = $hostname
+DNS.4 = *.$hostname
 IP.1 = 127.0.0.1
 IP.2 = ::1
+IP.3 = $server_ip
 EOF
 
     # Generate private key and certificate
