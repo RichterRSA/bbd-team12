@@ -81,7 +81,7 @@ interface Coordinate {
     y: number;
 }
 
-export const extractTorsoBox = (
+const extractTorsoBox = (
     pose: poseDetection.Pose,
     confidenceThreshold: number = 0.3,
 ) : Coordinate[] | null =>{
@@ -103,7 +103,7 @@ export const extractTorsoBox = (
         keypoint.score > confidenceThreshold
     );
 
-    let result: Coordinate[] = [
+    const result: Coordinate[] = [
         {x: 0, y: 0},
         {x: 0, y: 0},
         {x: 0, y: 0},
@@ -129,7 +129,7 @@ export const extractTorsoBox = (
         }
     });
 
-    let average: Coordinate = {x: 0, y: 0}
+    const average: Coordinate = {x: 0, y: 0}
     let count = 0;
 
     result.forEach(point => {
@@ -155,7 +155,7 @@ export const extractTorsoBox = (
 }
 
 // Function to extract bounding box around body (excluding arms)
-export const extractBodyBoundingBox = (
+const extractBodyBoundingBox = (
     pose: poseDetection.Pose,
     confidenceThreshold: number = 0.3,
     padding: number = 10
@@ -235,6 +235,7 @@ export const extractBodyBoundingBox = (
 };
 
 // Function to draw the body bounding box on canvas
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const drawBodyBoundingBox = (
     pose: poseDetection.Pose,
     canvasRef: React.RefObject<HTMLCanvasElement | null>,
@@ -321,8 +322,8 @@ const drawTorsoBox = (
         ctx.strokeStyle = "rgba(230, 0, 255, 0.9)"; // Brighter green
         ctx.lineWidth = 2;
         for (let index = 0; index < 4; index++) {
-            let coord1 = boundingBox[index];
-            let coord2 = boundingBox[(index+1) % 4];
+            const coord1 = boundingBox[index];
+            const coord2 = boundingBox[(index+1) % 4];
 
             const scaledX1 = coord1.x * scaleX;
             const scaledX2 = coord2.x * scaleX;
@@ -405,9 +406,9 @@ const drawTorsoBox = (
     const sampleH = Math.max(1, Math.min(h/scaleY, videoHeight - sampleY));
 
     // Get image data from the video frame (not the overlay canvas)
-    let data: ImageData = tempCtx.getImageData(sampleX, sampleY, sampleW, sampleH);
+    const data: ImageData = tempCtx.getImageData(sampleX, sampleY, sampleW, sampleH);
 
-    let rgb = {r: 0, g: 0, b: 0};
+    const rgb = {r: 0, g: 0, b: 0};
     let count = 0;
     
     // Sample every 4th pixel for efficiency (you can adjust this)
@@ -434,6 +435,7 @@ const drawTorsoBox = (
 };
 
 // Function to draw crosshair circle on canvas
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const drawCrosshair = (
     canvasRef: React.RefObject<HTMLCanvasElement | null>,
     webcamRef: React.RefObject<Webcam | null>,
@@ -508,8 +510,7 @@ const drawDetections = (
     detections: poseDetection.Pose[], 
     canvasRef: React.RefObject<HTMLCanvasElement | null>, 
     webcamRef: React.RefObject<Webcam | null>,
-    highFpsMode: boolean = true,
-    crosshairRadius: number = 80
+    highFpsMode: boolean = true
 ) => {
     const ctx = canvasRef.current?.getContext("2d");
     const video = webcamRef.current?.video;
@@ -541,12 +542,15 @@ const drawDetections = (
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
     // Check if any person is inside crosshair for coloring
+    // (Currently unused as crosshair drawing is commented out)
+    /*
     let anyPersonInside = false;
     if (detections.length > 0 && video) {
         anyPersonInside = detections.some(pose => 
             isPersonInCrosshair(pose, video.videoWidth, video.videoHeight, crosshairRadius)
         );
     }
+    */
     
     // Draw crosshair first (so it appears behind the pose)
     // drawCrosshair(canvasRef, webcamRef, crosshairRadius, anyPersonInside);
@@ -671,7 +675,7 @@ export default function TensorFlow() {
             
             // Draw the latest pose data at every frame for smooth animation
             if (currentPosesRef.current.length > 0) {
-                drawDetections(currentPosesRef.current, canvasRef, webcamRef, true, crosshairRadius);
+                drawDetections(currentPosesRef.current, canvasRef, webcamRef, true);
             }
             
             renderFrameId = requestAnimationFrame(renderFrame);
@@ -684,7 +688,7 @@ export default function TensorFlow() {
                 cancelAnimationFrame(renderFrameId);
             }
         };
-    }, []);
+    }, [crosshairRadius]);
     
     // Set up pose detection loop separate from rendering for better performance
     useEffect(() => {
@@ -792,7 +796,7 @@ export default function TensorFlow() {
                 clearInterval(detectionIntervalId);
             }
         };
-    }, [model]);
+    }, [model, crosshairRadius]);
     
     useEffect(() => {
         async function loadModel() {
@@ -964,7 +968,7 @@ export default function TensorFlow() {
                     
                     <div style={{ marginTop: '15px' }}>
                         <h3>MoveNet Pose Detection</h3>
-                        <p>Stand in view of the camera and move inside the circular target. When you're inside the target area, press the button to make your phone vibrate. Adjust the target size using the slider.</p>
+                        <p>Stand in view of the camera and move inside the circular target. When you&apos;re inside the target area, press the button to make your phone vibrate. Adjust the target size using the slider.</p>
                         
                         {/* Status message display */}
                         {vibrationStatus && (
