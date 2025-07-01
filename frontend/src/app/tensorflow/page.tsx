@@ -4,22 +4,13 @@ import * as poseDetection from "@tensorflow-models/pose-detection";
 import { useEffect, useRef, useState } from "react";
 import Webcam from "react-webcam";
 import { ready } from "@tensorflow/tfjs";
-
-async function requestCameraPermission() {
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-            video: true 
-        });
-        
-        stream.getTracks().forEach(track => track.stop());
-        
-        return true;
-    } catch (error) {
-        console.error('Camera permission denied or error:', error);
-        
-        return false;
-    }
-}
+import { 
+  requestCameraPermission, 
+  extractTorsoBox, 
+  drawTorsoBox,
+  drawDetections,
+  type Coordinate 
+} from "../../utils/poseDetection";
 
 // Function to check if person is inside the crosshair circle
 const isPersonInCrosshair = (
@@ -76,83 +67,7 @@ const triggerVibration = () => {
     return true;
 };
 
-interface Coordinate {
-    x: number;
-    y: number;
-}
 
-const extractTorsoBox = (
-    pose: poseDetection.Pose,
-    confidenceThreshold: number = 0.3,
-) : Coordinate[] | null =>{
-
-    if (!pose.keypoints || pose.keypoints.length === 0) {
-        return null;
-    }
-
-    const coreBodyKeypointNames = [
-        'left_shoulder', 'right_shoulder',
-        'left_hip', 'right_hip',
-    ];
-
-
-    const validBodyKeypoints = pose.keypoints.filter(keypoint => 
-        keypoint.name && 
-        coreBodyKeypointNames.includes(keypoint.name) &&
-        keypoint.score && 
-        keypoint.score > confidenceThreshold
-    );
-
-    const result: Coordinate[] = [
-        {x: 0, y: 0},
-        {x: 0, y: 0},
-        {x: 0, y: 0},
-        {x: 0, y: 0}
-    ]
-
-    validBodyKeypoints.forEach(kp => {
-        switch (kp.name) {
-            case "left_shoulder":
-                result[0] = {x:kp.x, y:kp.y};
-                break;
-            case "right_shoulder":
-                result[1] = {x:kp.x, y:kp.y};
-                break;
-            case "right_hip":
-                result[2] = {x:kp.x, y:kp.y};
-                break;
-            case "left_hip":
-                result[3] = {x:kp.x, y:kp.y};
-                break;
-            default:
-                break;
-        }
-    });
-
-    const average: Coordinate = {x: 0, y: 0}
-    let count = 0;
-
-    result.forEach(point => {
-        if(point.x !== 0 && point.y !== 0) {
-            average.x += point.x;
-            average.y += point.y;
-            count++;
-        }
-    });
-
-    average.x /= count;
-    average.y /= count;
-
-    for (let index = 0; index < result.length; index++) {
-        const element = result[index];
-        
-        if(element.x === 0 && element.y === 0) {
-            result[index] = average;
-        }
-    }
-
-    return result;
-}
 
 // Function to extract bounding box around body (excluding arms)
 const extractBodyBoundingBox = (
@@ -288,151 +203,7 @@ const drawBodyBoundingBox = (
     }
 };
 
-const drawTorsoBox = (
-    pose: poseDetection.Pose,
-    canvasRef: React.RefObject<HTMLCanvasElement | null>,
-    webcamRef: React.RefObject<Webcam | null>,
-    confidenceThreshold: number = 0.3
-) => {
-    const ctx = canvasRef.current?.getContext("2d");
-    const video = webcamRef.current?.video;
 
-
-    if (!ctx || !video) {
-        console.error("Canvas or video not ready for bounding box");
-        return;
-    }
-
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    // Get scaling factors
-    const videoWidth = video.videoWidth;
-    const videoHeight = video.videoHeight;
-    const displayWidth = video.clientWidth;
-    const displayHeight = video.clientHeight;
-    const scaleX = displayWidth / videoWidth;
-    const scaleY = displayHeight / videoHeight;
-
-    // Extract body bounding box
-    const boundingBox = extractTorsoBox(pose, confidenceThreshold);
-    
-    if (boundingBox) {
-        // Scale bounding box to display coordinates
-        ctx.strokeStyle = "rgba(230, 0, 255, 0.9)"; // Brighter green
-        ctx.lineWidth = 2;
-        for (let index = 0; index < 4; index++) {
-            const coord1 = boundingBox[index];
-            const coord2 = boundingBox[(index+1) % 4];
-
-            const scaledX1 = coord1.x * scaleX;
-            const scaledX2 = coord2.x * scaleX;
-
-            const scaledY1 = coord1.y * scaleY;
-            const scaledY2 = coord2.y * scaleY;
-            
-            ctx.beginPath();
-            ctx.moveTo(scaledX1, scaledY1);
-            ctx.lineTo(scaledX2, scaledY2);
-            ctx.stroke();
-        }
-    }
-
-    let minX = Infinity;
-    let maxX = -Infinity;
-    let minY = Infinity;
-    let maxY = -Infinity;
-
-    boundingBox?.forEach(point => {
-        if (point.x < minX) minX = point.x;
-        if (point.x > maxX) maxX = point.x;
-        if (point.y < minY) minY = point.y;
-        if (point.y > maxY) maxY = point.y;
-    });
-
-    if(minX === Infinity || minY === Infinity || 
-        maxX === -Infinity || maxY === -Infinity) {
-        return;
-    }
-
-    const scaledX1 = minX * scaleX;
-    const scaledX2 = maxX * scaleX;
-
-    const scaledY1 = minY * scaleY;
-    const scaledY2 = maxY * scaleY;
-    
-    let w = scaledX2-scaledX1;
-    let h = scaledY2-scaledY1;
-
-    const MIN_WIDTH = 20;
-    const MIN_HEIGHT = 20;
-
-    const diffW = MIN_WIDTH - w;
-    const diffH = MIN_HEIGHT - h;
-
-    let x = scaledX1;
-    let y = scaledY1;
-    
-    if (diffW>0) {
-        x -= diffW/2;
-        w = MIN_WIDTH;
-    }
-
-    if (diffH>0) {
-        y -= diffH/2;
-        h = MIN_HEIGHT;
-    }
-
-    // Create a temporary canvas to capture the current video frame
-    const tempCanvas = document.createElement('canvas');
-    const tempCtx = tempCanvas.getContext('2d');
-
-    if (!tempCtx) {
-        console.error("Could not create temporary canvas.");
-        return;
-    }
-
-    // Set temp canvas to video dimensions
-    tempCanvas.width = videoWidth;
-    tempCanvas.height = videoHeight;
-
-    // Draw the current video frame to temp canvas
-    tempCtx.drawImage(video, 0, 0, videoWidth, videoHeight);
-
-    // Calculate the region to sample from (in original video coordinates, not scaled)
-    const sampleX = Math.max(0, Math.min(minX - (diffW > 0 ? diffW/2/scaleX : 0), videoWidth));
-    const sampleY = Math.max(0, Math.min(minY - (diffH > 0 ? diffH/2/scaleY : 0), videoHeight));
-    const sampleW = Math.max(1, Math.min(w/scaleX, videoWidth - sampleX));
-    const sampleH = Math.max(1, Math.min(h/scaleY, videoHeight - sampleY));
-
-    // Get image data from the video frame (not the overlay canvas)
-    const data: ImageData = tempCtx.getImageData(sampleX, sampleY, sampleW, sampleH);
-
-    const rgb = {r: 0, g: 0, b: 0};
-    let count = 0;
-    
-    // Sample every 4th pixel for efficiency (you can adjust this)
-    const blockSize = 4;
-    for (let i = 0; i < data.data.length; i += blockSize * 4) {
-        rgb.r += data.data[i];     // Red
-        rgb.g += data.data[i + 1]; // Green  
-        rgb.b += data.data[i + 2]; // Blue
-        count++;
-    }
-
-    // Calculate average
-    if (count > 0) {
-        rgb.r = Math.floor(rgb.r / count);
-        rgb.g = Math.floor(rgb.g / count);
-        rgb.b = Math.floor(rgb.b / count);
-    }
-
-    const rgba = `rgba(${rgb.r},${rgb.g},${rgb.b},1)`
-
-    ctx.beginPath();
-    ctx.fillStyle = rgba;
-    ctx.fillRect(x, y, w, h);
-};
 
 // Function to draw crosshair circle on canvas
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -503,94 +274,6 @@ const drawCrosshair = (
     ctx.beginPath();
     ctx.arc(centerX, centerY, 3, 0, 2 * Math.PI);
     ctx.fill();
-};
-
-// Use a lower confidence threshold for drawing at high framerates to ensure more consistent visualization
-const drawDetections = (
-    detections: poseDetection.Pose[], 
-    canvasRef: React.RefObject<HTMLCanvasElement | null>, 
-    webcamRef: React.RefObject<Webcam | null>,
-    highFpsMode: boolean = true
-) => {
-    const ctx = canvasRef.current?.getContext("2d");
-    const video = webcamRef.current?.video;
-
-    if (!ctx || !video) {
-        console.error("Canvas or video not ready");
-        return;
-    }
-
-    // Set canvas dimensions to match the displayed video
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    // Get the actual video dimensions and displayed dimensions
-    const videoWidth = video.videoWidth;
-    const videoHeight = video.videoHeight;
-    const displayWidth = video.clientWidth;
-    const displayHeight = video.clientHeight;
-
-    // Set canvas size to match the displayed video
-    canvas.width = displayWidth;
-    canvas.height = displayHeight;
-
-    // Calculate scaling factors
-    const scaleX = displayWidth / videoWidth;
-    const scaleY = displayHeight / videoHeight;
-
-    // Clear previous drawings
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // Check if any person is inside crosshair for coloring
-    // (Currently unused as crosshair drawing is commented out)
-    /*
-    let anyPersonInside = false;
-    if (detections.length > 0 && video) {
-        anyPersonInside = detections.some(pose => 
-            isPersonInCrosshair(pose, video.videoWidth, video.videoHeight, crosshairRadius)
-        );
-    }
-    */
-    
-    // Draw crosshair first (so it appears behind the pose)
-    // drawCrosshair(canvasRef, webcamRef, crosshairRadius, anyPersonInside);
-    
-    // Use a much lower confidence threshold in high FPS mode (60fps)
-    const confidenceThreshold = highFpsMode ? 0.1 : 0.5;
-    
-    // Draw all detected poses
-    detections.forEach(pose => {
-        if (!pose.keypoints || pose.keypoints.length === 0) return;
-        
-        const keypoints:poseDetection.Keypoint[] = pose.keypoints;
-        
-        // Draw connections (skeleton) - optimized for high framerates
-        ctx.strokeStyle = "rgba(0, 128, 255, 0.9)"; // Semi-transparent blue
-        ctx.lineWidth = 3;     
-
-        // Draw keypoints - optimized for high framerates
-        keypoints.forEach(keypoint => {
-            if (keypoint.score && keypoint.score > confidenceThreshold) {
-                const x = keypoint.x;
-                const y = keypoint.y;
-
-                // Scale the coordinates to match the displayed video size
-                const scaledX = x * scaleX;
-                const scaledY = y * scaleY;
-
-                // Draw filled circle for each keypoint
-                ctx.fillStyle = "rgba(255, 0, 0, 0.9)"; // Semi-transparent red
-                ctx.beginPath();
-                ctx.arc(scaledX, scaledY, 4, 0, 2 * Math.PI);
-                ctx.fill();
-            }
-        });
-
-        // Draw the body bounding box
-        // drawBodyBoundingBox(pose, canvasRef, webcamRef, confidenceThreshold);
-        drawTorsoBox(pose, canvasRef, webcamRef, confidenceThreshold);
-
-    }); 
 };
 
 export default function TensorFlow() {
