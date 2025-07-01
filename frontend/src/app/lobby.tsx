@@ -59,7 +59,7 @@ const Lobby = () => {
   useEffect(() => {
     setConnectionStatus('connecting');
     
-    const newSocket: Socket = io('https://bbd12.duckdns.org:3001', {
+    const newSocket: Socket = io('http://bbd12.duckdns.org:3001', {
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
     });
