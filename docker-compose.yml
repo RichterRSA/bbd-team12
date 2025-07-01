@@ -19,11 +19,10 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "3000:3000"  # HTTPS will be served on port 3000 with self-signed certificates
+      - "3000:3000"  # HTTPS will be served directly by Next.js dev server
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=development
       - NEXT_PUBLIC_BACKEND_URL=http://backend:3001
-      - HTTPS=true  # Enable HTTPS for Next.js
     depends_on:
       - backend
     networks:

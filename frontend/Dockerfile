@@ -13,11 +13,8 @@ RUN npm install
 # Copy the rest of the application code
 COPY . .
 
-# Build the Next.js application
-RUN npm run build:docker
-
 # Expose the port the app runs on (HTTPS on port 3000)
 EXPOSE 3000
 
-# Start the application with HTTPS using custom server
-CMD ["node", "server.js"]
+# Start the application in development mode with HTTPS
+CMD ["npm", "run", "dev:https"]
