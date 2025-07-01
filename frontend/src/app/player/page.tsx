@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
@@ -5,8 +6,8 @@ import Webcam from "react-webcam";
 import * as poseDetection from "@tensorflow-models/pose-detection";
 import { io, Socket } from "socket.io-client";
 import { drawCrosshair, drawDetections, isPersonInCrosshair, triggerVibration } from "../tensorflow/page";
+import QrScanner from "qr-scanner";
 
-// Define types for game data
 interface Player {
   id: string;
   name: string;
@@ -17,6 +18,7 @@ interface Player {
   lives: number;
   powerUps: { type: string; active: boolean }[];
   weapon: { type: string; damage: number; cost: number } | null;
+  status: "alive" | "dead";
 }
 
 interface GameState {
@@ -35,24 +37,24 @@ export default function PlayerView() {
   const [player, setPlayer] = useState<Player | null>(null);
   const [notifications, setNotifications] = useState<string[]>([]);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
+  const [qrCodeText, setQrCodeText] = useState<string | null>(null);
   const webcamRef = useRef<Webcam | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const lastShotTimeRef = useRef<number>(0);
+  const lastItemScanTimeRef = useRef<number>(0);
+  const qrScannerRef = useRef<QrScanner | null>(null);
 
-  // Initialize Socket.IO and TensorFlow model
+  // Initialize Socket.IO, TensorFlow model, and QR Scanner
   useEffect(() => {
-    // Connect to backend
     socketRef.current = io("http://localhost:3001", { transports: ["websocket"] });
-    
-    // Load TensorFlow model
+
     const initModel = async () => {
       await import("@tensorflow/tfjs-backend-webgl");
       const detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet);
       setModel(detector);
     };
 
-    // Request camera permission
     const checkCameraPermission = async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -64,12 +66,28 @@ export default function PlayerView() {
       }
     };
 
+    const initQrScanner = () => {
+      const video = webcamRef.current?.video;
+      if (video) {
+        qrScannerRef.current = new QrScanner(video, (result) => {
+          // Handled in detectQRCode
+        }, {
+          returnDetailedScanResult: true,
+          highlightScanRegion: false,
+          highlightCodeOutline: false,
+          maxScansPerSecond: 5
+        });
+      }
+    };
+
     initModel();
     checkCameraPermission();
+    initQrScanner();
 
     return () => {
       socketRef.current?.disconnect();
       model?.dispose();
+      qrScannerRef.current?.destroy();
     };
   }, []);
 
@@ -84,10 +102,9 @@ export default function PlayerView() {
     });
 
     socketRef.current.on("notification", (message: string) => {
-      setNotifications((prev) => [...prev, message].slice(-3)); // Keep last 3 notifications
-      if (message.includes("shot") || message.includes("hit")) {
+      setNotifications((prev) => [...prev, message].slice(-3));
+      if (message.includes("shot") || message.includes("hit") || message.includes("eliminated")) {
         triggerVibration();
-        // Play sound
         new Audio("/sounds/laser.mp3").play().catch((e) => console.error("Sound error:", e));
       }
     });
@@ -98,40 +115,105 @@ export default function PlayerView() {
     };
   }, []);
 
-  // Handle pose detection and shooting logic
+  // Handle pose detection and QR code scanning
   useEffect(() => {
-    if (!model || !webcamRef.current?.video || !canvasRef.current || !hasCameraPermission) return;
+    if (!model || !webcamRef.current?.video || !canvasRef.current || !hasCameraPermission || !gameState || !player) return;
 
     const detectPoses = async () => {
       const video = webcamRef.current?.video;
       if (!video) return;
 
       const poses = await model.estimatePoses(video);
-      drawDetections(poses, canvasRef, webcamRef, true, CROSSHAIR_RADIUS);
+      let isPersonInside = false;
 
-      // Check for shooting
+      if (poses.length > 0) {
+        isPersonInside = isPersonInCrosshair(poses[0], video.videoWidth, video.videoHeight, CROSSHAIR_RADIUS);
+      }
+
+      drawCrosshair(canvasRef, webcamRef, CROSSHAIR_RADIUS, isPersonInside);
+      drawDetections(poses, canvasRef, webcamRef, true);
+
       const now = Date.now();
-      if (poses.length > 0 && isPersonInCrosshair(poses[0], video.videoWidth, video.videoHeight, CROSSHAIR_RADIUS)) {
-        if (now - lastShotTimeRef.current > 1000) { // 1-second cooldown
-          socketRef.current?.emit("shoot", {
-            gameId: gameState?.id,
-            playerId: socketRef.current?.id,
-            weapon: player?.weapon,
-          });
-          lastShotTimeRef.current = now;
-          triggerVibration();
-          new Audio("/sounds/singleshot.mp3").play().catch((e) => console.error("Sound error:", e));
-        }
+      if (isPersonInside && player.weapon && now - lastShotTimeRef.current > 1000) {
+        socketRef.current?.emit("shoot", {
+          gameId: gameState.id,
+          playerId: socketRef.current?.id,
+          weapon: player.weapon,
+        });
+        lastShotTimeRef.current = now;
+        triggerVibration();
+        new Audio("/sounds/singleshot.mp3").play().catch((e) => console.error("Sound error:", e));
       }
     };
 
-    const interval = setInterval(detectPoses, 1000 / 60); // 60 FPS
-    return () => clearInterval(interval);
+    const detectQRCode = async () => {
+      if (!qrScannerRef.current) return;
+
+      try {
+        const result = await QrScanner.scanImage(webcamRef.current?.video!);
+        setQrCodeText(result);
+        const now = Date.now();
+        if (now - lastItemScanTimeRef.current > 2000) {
+          if (player.status === "dead" && result !== "revive") {
+            socketRef.current?.emit("notification", "Cannot scan items: You are dead");
+          } else if (["pistol", "rifle", "sniper"].includes(result) && player.status === "alive") {
+            const weapons = [
+              { type: "Pistol", damage: 10, cost: 0 },
+              { type: "Rifle", damage: 20, cost: 0 },
+              { type: "Sniper", damage: 50, cost: 0 }
+            ];
+            const weapon = weapons.find((w) => w.type.toLowerCase() === result);
+            if (weapon) {
+              socketRef.current?.emit("purchaseWeapon", {
+                gameId: gameState.id,
+                playerId: socketRef.current?.id,
+                weapon
+              });
+              setNotifications((prev) => [...prev, `Scanned ${result} weapon`].slice(-3));
+              triggerVibration();
+              new Audio("/sounds/powerup.wav").play().catch((e) => console.error("Sound error:", e));
+            }
+          } else if (result === "treasure" && player.status === "alive") {
+            socketRef.current?.emit("collectTreasure", {
+              gameId: gameState.id,
+              playerId: socketRef.current?.id,
+              item: result
+            });
+            setNotifications((prev) => [...prev, `Scanned treasure`].slice(-3));
+            triggerVibration();
+            new Audio("/sounds/lasershot.mp3").play().catch((e) => console.error("Sound error:", e));
+          } else if (result === "revive" && player.status === "dead") {
+            socketRef.current?.emit("revivePlayer", {
+              gameId: gameState.id,
+              playerId: socketRef.current?.id
+            });
+            setNotifications((prev) => [...prev, `Scanned revive`].slice(-3));
+            triggerVibration();
+            new Audio("/sounds/lasershot.mp3").play().catch((e) => console.error("Sound error:", e));
+          }
+          lastItemScanTimeRef.current = now;
+        }
+      } catch (error) {
+        setQrCodeText(null); // Clear text if no QR code is detected
+      }
+    };
+
+    const poseInterval = setInterval(detectPoses, 1000 / 60); // 60 FPS for pose detection
+    const qrInterval = setInterval(detectQRCode, 1000 / 5); // 5 FPS for QR code detection
+    return () => {
+      clearInterval(poseInterval);
+      clearInterval(qrInterval);
+    };
   }, [model, gameState, player, hasCameraPermission]);
 
   // Handle purchasing weapons and lives
   const handlePurchase = (item: "weapon" | "life", type?: string) => {
-    if (!socketRef.current || !gameState || !player) return;
+    if (!socketRef.current || !gameState || !player || player.status === "dead") {
+      if (player && player.status === "dead") {
+        setNotifications((prev) => [...prev, "Cannot purchase: You are dead"].slice(-3));
+      }
+      return;
+    }
 
     const weapons = [
       { type: "Pistol", damage: 10, cost: 50 },
@@ -155,12 +237,31 @@ export default function PlayerView() {
 
   // Handle activating power-up
   const handleActivatePowerUp = (type: string) => {
-    if (!socketRef.current || !gameState || !player) return;
+    if (!socketRef.current || !gameState || !player || player.status === "dead") {
+      if (player && player.status === "dead") {
+        setNotifications((prev) => [...prev, "Cannot activate power-up: You are dead"].slice(-3));
+      }
+      return;
+    }
     socketRef.current.emit("activatePowerUp", { gameId: gameState.id, playerId: player.id, powerUpType: type });
   };
 
   if (hasCameraPermission === false) {
     return <div className="text-white text-center p-4">Camera permission denied. Please enable camera access.</div>;
+  }
+
+  if (player && player.status === "dead") {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center p-4">
+        <div className="text-center">
+          <h1 className="text-4xl font-bold text-red-500 mb-4">Game Over</h1>
+          <p className="text-lg">You have been eliminated. Check the scores at /scores.</p>
+          {qrCodeText && (
+            <div className="text-2xl text-green-500 mt-4">{qrCodeText}</div>
+          )}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -174,6 +275,12 @@ export default function PlayerView() {
           screenshotFormat="image/jpeg"
         />
         <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full" />
+        {/* QR Code Text Overlay */}
+        {qrCodeText && (
+          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-2xl text-green-500 bg-black/50 px-4 py-2 rounded pointer-events-none">
+            {qrCodeText}
+          </div>
+        )}
       </div>
 
       {/* Player Interface Overlay */}
@@ -198,6 +305,7 @@ export default function PlayerView() {
                 <div>Points: {player.points}</div>
                 <div>Lives: {player.lives}</div>
                 <div>Weapon: {player.weapon?.type || "None"}</div>
+                <div>Status: {player.status.charAt(0).toUpperCase() + player.status.slice(1)}</div>
               </div>
             )}
           </div>
@@ -256,11 +364,6 @@ export default function PlayerView() {
               {note}
             </div>
           ))}
-        </div>
-
-        {/* Minimap (Placeholder) */}
-        <div className="absolute bottom-4 left-4 w-32 h-32 bg-gray-900/70 rounded pointer-events-auto">
-          <div className="p-2 text-sm">Minimap (TBD)</div>
         </div>
       </div>
     </div>
