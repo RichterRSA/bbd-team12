@@ -35,7 +35,7 @@ const loadModelAndDetect = async (webcamRef: React.RefObject<Webcam>) => {
 }
 
 // Function to check if person is inside the crosshair circle
-const isPersonInCrosshair = (
+export const isPersonInCrosshair = (
     pose: poseDetection.Pose,
     videoWidth: number,
     videoHeight: number,
@@ -76,7 +76,7 @@ const isPersonInCrosshair = (
 };
 
 // Function to trigger phone vibration
-const triggerVibration = () => {
+export const triggerVibration = () => {
     if (navigator.vibrate) {
         // Vibrate for 200ms
         navigator.vibrate(200);
@@ -222,7 +222,7 @@ const drawBodyBoundingBox = (
 };
 
 // Function to draw crosshair circle on canvas
-const drawCrosshair = (
+export const drawCrosshair = (
     canvasRef: React.RefObject<HTMLCanvasElement | null>,
     webcamRef: React.RefObject<Webcam | null>,
     crosshairRadius: number,
@@ -292,7 +292,7 @@ const drawCrosshair = (
 };
 
 // Use a lower confidence threshold for drawing at high framerates to ensure more consistent visualization
-const drawDetections = (
+export const drawDetections = (
     detections: poseDetection.Pose[], 
     canvasRef: React.RefObject<HTMLCanvasElement | null>, 
     webcamRef: React.RefObject<Webcam | null>,
