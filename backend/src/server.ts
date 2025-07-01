@@ -1,5 +1,6 @@
 import express from 'express';
-import { createServer } from 'http';
+import { createServer } from 'https';
+import { readFileSync } from 'fs';
 import { Server, Socket } from 'socket.io';
 
 // Define types for our game system
@@ -30,13 +31,20 @@ interface GameCollection {
 
 // Set up Express and Socket.IO
 const app = express();
-const httpServer = createServer(app);
+
+// HTTPS configuration using the same certificates as frontend
+const httpsOptions = {
+  key: readFileSync('../frontend/certificates/localhost-key.pem'),
+  cert: readFileSync('../frontend/certificates/localhost.pem')
+};
+
+const httpServer = createServer(httpsOptions, app);
 const io = new Server(httpServer, {
   cors: {
-    origin: "*",
+    origin: ["http://localhost:3000", "https://localhost:3000", "https://192.168.1.120:3000"],
     methods: ["GET", "POST"],
     allowedHeaders: ["*"],
-    credentials: false
+    credentials: true
   },
 });
 
@@ -313,6 +321,6 @@ io.on('connection', (socket: Socket) => {
 
 const PORT = 3001;
 httpServer.listen(PORT, () => {
-  console.log(`\n🚀 Backend server ready on http://localhost:${PORT}`);
+  console.log(`\n🚀 Backend server ready on https://localhost:${PORT}`);
   console.log(`🎮 Waiting for connections...\n`);
 });
