@@ -59,9 +59,14 @@ const Lobby = () => {
   useEffect(() => {
     setConnectionStatus('connecting');
     
-    const newSocket: Socket = io('http://bbd12.duckdns.org:3001', {
+    // Use current protocol and hostname, proxy through nginx
+    const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+    const socketUrl = `${protocol}//${window.location.host}`;
+    
+    const newSocket: Socket = io(socketUrl, {
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
+      path: '/socket.io/',
     });
     
     setSocket(newSocket);
