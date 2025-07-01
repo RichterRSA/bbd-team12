@@ -36,7 +36,7 @@ warning() {
 # Function to check if a port is in use
 check_port() {
     local port=$1
-    if lsof -Pi :$port -sTCP:LISTEN -t >/dev/null 2>&1; then
+    if ss -tlnp | grep -q ":$port "; then
         return 0
     else
         return 1
@@ -81,7 +81,7 @@ cleanup() {
     for port in 3000 8080; do
         if check_port $port; then
             warning "Port $port is in use, attempting to free it..."
-            lsof -ti:$port | xargs kill -9 2>/dev/null || true
+            ss -tlnp | grep ":$port " | awk '{print $6}' | grep -o 'pid=[0-9]*' | cut -d= -f2 | xargs kill -9 2>/dev/null || true
         fi
     done
     

@@ -36,7 +36,7 @@ warning() {
 # Function to check if a port is in use
 check_port() {
     local port=$1
-    if lsof -Pi :$port -sTCP:LISTEN -t >/dev/null 2>&1; then
+    if ss -tlnp | grep -q ":$port "; then
         return 0
     else
         return 1
@@ -85,7 +85,7 @@ stop_backend() {
     # Kill any remaining processes on port 8080
     if check_port 8080; then
         warning "Port 8080 still in use, killing processes..."
-        lsof -ti:8080 | xargs kill -9 2>/dev/null || true
+        ss -tlnp | grep ":8080 " | awk '{print $6}' | grep -o 'pid=[0-9]*' | cut -d= -f2 | xargs kill -9 2>/dev/null || true
     fi
     
     # Kill any node processes running server.js
@@ -117,7 +117,7 @@ stop_frontend() {
     # Kill any remaining processes on port 3000
     if check_port 3000; then
         warning "Port 3000 still in use, killing processes..."
-        lsof -ti:3000 | xargs kill -9 2>/dev/null || true
+        ss -tlnp | grep ":3000 " | awk '{print $6}' | grep -o 'pid=[0-9]*' | cut -d= -f2 | xargs kill -9 2>/dev/null || true
     fi
     
     # Kill any next.js processes

@@ -34,7 +34,7 @@ warning() {
 # Function to check if a port is in use
 check_port() {
     local port=$1
-    if lsof -Pi :$port -sTCP:LISTEN -t >/dev/null 2>&1; then
+    if ss -tlnp | grep -q ":$port "; then
         return 0
     else
         return 1
@@ -44,7 +44,7 @@ check_port() {
 # Function to get process info for a port
 get_process_info() {
     local port=$1
-    lsof -Pi :$port -sTCP:LISTEN -t 2>/dev/null | head -1 | xargs ps -p 2>/dev/null | tail -n +2
+    ss -tlnp | grep ":$port " | awk '{print $6}' | head -1
 }
 
 # Function to check service health

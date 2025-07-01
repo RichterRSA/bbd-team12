@@ -36,7 +36,7 @@ warning() {
 # Function to check if a port is in use
 check_port() {
     local port=$1
-    if lsof -Pi :$port -sTCP:LISTEN -t >/dev/null 2>&1; then
+    if ss -tlnp | grep -q ":$port "; then
         return 0
     else
         return 1
@@ -62,7 +62,7 @@ cleanup() {
     # Force kill if still running
     for port in 3000 8080; do
         if check_port $port; then
-            lsof -ti:$port | xargs kill -9 2>/dev/null || true
+            ss -tlnp | grep ":$port " | awk '{print $6}' | grep -o 'pid=[0-9]*' | cut -d= -f2 | xargs kill -9 2>/dev/null || true
         fi
     done
     
@@ -100,7 +100,7 @@ start_backend_dev() {
     # Kill any existing process on port 8080
     if check_port 8080; then
         warning "Port 8080 is in use, killing existing process..."
-        lsof -ti:8080 | xargs kill -9 2>/dev/null || true
+        ss -tlnp | grep ":8080 " | awk '{print $6}' | grep -o 'pid=[0-9]*' | cut -d= -f2 | xargs kill -9 2>/dev/null || true
         sleep 1
     fi
     
@@ -134,7 +134,7 @@ start_frontend_dev() {
     # Kill any existing process on port 3000
     if check_port 3000; then
         warning "Port 3000 is in use, killing existing process..."
-        lsof -ti:3000 | xargs kill -9 2>/dev/null || true
+        ss -tlnp | grep ":3000 " | awk '{print $6}' | grep -o 'pid=[0-9]*' | cut -d= -f2 | xargs kill -9 2>/dev/null || true
         sleep 1
     fi
     
