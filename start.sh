@@ -142,8 +142,8 @@ start_backend() {
     log "Starting backend server..."
     cd "$PROJECT_ROOT/backend"
     
-    # Start backend in background
-    nohup npm start > ../logs/backend.log 2>&1 &
+    # Start backend in background with setsid for proper detachment
+    setsid nohup npm start > ../logs/backend.log 2>&1 < /dev/null &
     BACKEND_PID=$!
     echo $BACKEND_PID > ../pids/backend.pid
     
@@ -158,8 +158,8 @@ start_frontend() {
     log "Starting frontend server..."
     cd "$PROJECT_ROOT/frontend"
     
-    # Start frontend in background
-    nohup npm start > ../logs/frontend.log 2>&1 &
+    # Start frontend in background with setsid for proper detachment
+    setsid nohup npm start > ../logs/frontend.log 2>&1 < /dev/null &
     FRONTEND_PID=$!
     echo $FRONTEND_PID > ../pids/frontend.pid
     
@@ -271,28 +271,10 @@ main() {
     show_status
     
     success "All services started successfully!"
-    log "Press Ctrl+C to stop monitoring, or run ./stop.sh to stop all services"
-    
-    # Monitor services
-    while true; do
-        sleep 30
-        if ! check_port 8080; then
-            error "Backend service stopped unexpectedly!"
-            break
-        fi
-        if ! check_port 3000; then
-            error "Frontend service stopped unexpectedly!"
-            break
-        fi
-        if ! pgrep nginx > /dev/null; then
-            error "Nginx stopped unexpectedly!"
-            break
-        fi
-    done
+    log "Services are running in the background."
+    log "Use ./status.sh to check service status"
+    log "Use ./stop.sh to stop all services"
 }
-
-# Handle script interruption
-trap 'log "Received interrupt signal. Services are still running. Use ./stop.sh to stop them."; exit 0' INT
 
 # Run main function
 main "$@"
