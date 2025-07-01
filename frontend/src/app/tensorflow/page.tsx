@@ -21,19 +21,6 @@ async function requestCameraPermission() {
     }
 }
 
-const loadModelAndDetect = async (webcamRef: React.RefObject<Webcam>) => {
-    // Check if the ref and its current value exist
-    if (!webcamRef.current?.video) {
-        console.error("Webcam not ready");
-        return;
-    }
-
-    const model = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet);
-    const predictions = await model.estimatePoses(webcamRef.current.video);
-
-    console.log(predictions);
-}
-
 // Function to check if person is inside the crosshair circle
 export const isPersonInCrosshair = (
     pose: poseDetection.Pose,
@@ -89,8 +76,86 @@ export const triggerVibration = () => {
     return true;
 };
 
+interface Coordinate {
+    x: number;
+    y: number;
+}
+
+const extractTorsoBox = (
+    pose: poseDetection.Pose,
+    confidenceThreshold: number = 0.3,
+) : Coordinate[] | null =>{
+
+    if (!pose.keypoints || pose.keypoints.length === 0) {
+        return null;
+    }
+
+    const coreBodyKeypointNames = [
+        'left_shoulder', 'right_shoulder',
+        'left_hip', 'right_hip',
+    ];
+
+
+    const validBodyKeypoints = pose.keypoints.filter(keypoint => 
+        keypoint.name && 
+        coreBodyKeypointNames.includes(keypoint.name) &&
+        keypoint.score && 
+        keypoint.score > confidenceThreshold
+    );
+
+    const result: Coordinate[] = [
+        {x: 0, y: 0},
+        {x: 0, y: 0},
+        {x: 0, y: 0},
+        {x: 0, y: 0}
+    ]
+
+    validBodyKeypoints.forEach(kp => {
+        switch (kp.name) {
+            case "left_shoulder":
+                result[0] = {x:kp.x, y:kp.y};
+                break;
+            case "right_shoulder":
+                result[1] = {x:kp.x, y:kp.y};
+                break;
+            case "right_hip":
+                result[2] = {x:kp.x, y:kp.y};
+                break;
+            case "left_hip":
+                result[3] = {x:kp.x, y:kp.y};
+                break;
+            default:
+                break;
+        }
+    });
+
+    const average: Coordinate = {x: 0, y: 0}
+    let count = 0;
+
+    result.forEach(point => {
+        if(point.x !== 0 && point.y !== 0) {
+            average.x += point.x;
+            average.y += point.y;
+            count++;
+        }
+    });
+
+    average.x /= count;
+    average.y /= count;
+
+    for (let index = 0; index < result.length; index++) {
+        const element = result[index];
+        
+        if(element.x === 0 && element.y === 0) {
+            result[index] = average;
+        }
+    }
+
+    return result;
+}
+
 // Function to extract bounding box around body (excluding arms)
-export const extractBodyBoundingBox = (
+const extractBodyBoundingBox = (
     pose: poseDetection.Pose,
     confidenceThreshold: number = 0.3,
     padding: number = 10
@@ -170,6 +235,7 @@ export const extractBodyBoundingBox = (
 };
 
 // Function to draw the body bounding box on canvas
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const drawBodyBoundingBox = (
     pose: poseDetection.Pose,
     canvasRef: React.RefObject<HTMLCanvasElement | null>,
@@ -198,6 +264,7 @@ const drawBodyBoundingBox = (
     // Extract body bounding box
     const boundingBox = extractBodyBoundingBox(pose, confidenceThreshold);
     
+    
     if (boundingBox) {
         // Scale bounding box to display coordinates
         const scaledX = boundingBox.x * scaleX;
@@ -219,6 +286,152 @@ const drawBodyBoundingBox = (
         ctx.font = "12px Arial";
         ctx.fillText("Torso", scaledX + 2, scaledY - 8);
     }
+};
+
+const drawTorsoBox = (
+    pose: poseDetection.Pose,
+    canvasRef: React.RefObject<HTMLCanvasElement | null>,
+    webcamRef: React.RefObject<Webcam | null>,
+    confidenceThreshold: number = 0.3
+) => {
+    const ctx = canvasRef.current?.getContext("2d");
+    const video = webcamRef.current?.video;
+
+
+    if (!ctx || !video) {
+        console.error("Canvas or video not ready for bounding box");
+        return;
+    }
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    // Get scaling factors
+    const videoWidth = video.videoWidth;
+    const videoHeight = video.videoHeight;
+    const displayWidth = video.clientWidth;
+    const displayHeight = video.clientHeight;
+    const scaleX = displayWidth / videoWidth;
+    const scaleY = displayHeight / videoHeight;
+
+    // Extract body bounding box
+    const boundingBox = extractTorsoBox(pose, confidenceThreshold);
+    
+    if (boundingBox) {
+        // Scale bounding box to display coordinates
+        ctx.strokeStyle = "rgba(230, 0, 255, 0.9)"; // Brighter green
+        ctx.lineWidth = 2;
+        for (let index = 0; index < 4; index++) {
+            const coord1 = boundingBox[index];
+            const coord2 = boundingBox[(index+1) % 4];
+
+            const scaledX1 = coord1.x * scaleX;
+            const scaledX2 = coord2.x * scaleX;
+
+            const scaledY1 = coord1.y * scaleY;
+            const scaledY2 = coord2.y * scaleY;
+            
+            ctx.beginPath();
+            ctx.moveTo(scaledX1, scaledY1);
+            ctx.lineTo(scaledX2, scaledY2);
+            ctx.stroke();
+        }
+    }
+
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+
+    boundingBox?.forEach(point => {
+        if (point.x < minX) minX = point.x;
+        if (point.x > maxX) maxX = point.x;
+        if (point.y < minY) minY = point.y;
+        if (point.y > maxY) maxY = point.y;
+    });
+
+    if(minX === Infinity || minY === Infinity || 
+        maxX === -Infinity || maxY === -Infinity) {
+        return;
+    }
+
+    const scaledX1 = minX * scaleX;
+    const scaledX2 = maxX * scaleX;
+
+    const scaledY1 = minY * scaleY;
+    const scaledY2 = maxY * scaleY;
+    
+    let w = scaledX2-scaledX1;
+    let h = scaledY2-scaledY1;
+
+    const MIN_WIDTH = 20;
+    const MIN_HEIGHT = 20;
+
+    const diffW = MIN_WIDTH - w;
+    const diffH = MIN_HEIGHT - h;
+
+    let x = scaledX1;
+    let y = scaledY1;
+    
+    if (diffW>0) {
+        x -= diffW/2;
+        w = MIN_WIDTH;
+    }
+
+    if (diffH>0) {
+        y -= diffH/2;
+        h = MIN_HEIGHT;
+    }
+
+    // Create a temporary canvas to capture the current video frame
+    const tempCanvas = document.createElement('canvas');
+    const tempCtx = tempCanvas.getContext('2d');
+
+    if (!tempCtx) {
+        console.error("Could not create temporary canvas.");
+        return;
+    }
+
+    // Set temp canvas to video dimensions
+    tempCanvas.width = videoWidth;
+    tempCanvas.height = videoHeight;
+
+    // Draw the current video frame to temp canvas
+    tempCtx.drawImage(video, 0, 0, videoWidth, videoHeight);
+
+    // Calculate the region to sample from (in original video coordinates, not scaled)
+    const sampleX = Math.max(0, Math.min(minX - (diffW > 0 ? diffW/2/scaleX : 0), videoWidth));
+    const sampleY = Math.max(0, Math.min(minY - (diffH > 0 ? diffH/2/scaleY : 0), videoHeight));
+    const sampleW = Math.max(1, Math.min(w/scaleX, videoWidth - sampleX));
+    const sampleH = Math.max(1, Math.min(h/scaleY, videoHeight - sampleY));
+
+    // Get image data from the video frame (not the overlay canvas)
+    const data: ImageData = tempCtx.getImageData(sampleX, sampleY, sampleW, sampleH);
+
+    const rgb = {r: 0, g: 0, b: 0};
+    let count = 0;
+    
+    // Sample every 4th pixel for efficiency (you can adjust this)
+    const blockSize = 4;
+    for (let i = 0; i < data.data.length; i += blockSize * 4) {
+        rgb.r += data.data[i];     // Red
+        rgb.g += data.data[i + 1]; // Green  
+        rgb.b += data.data[i + 2]; // Blue
+        count++;
+    }
+
+    // Calculate average
+    if (count > 0) {
+        rgb.r = Math.floor(rgb.r / count);
+        rgb.g = Math.floor(rgb.g / count);
+        rgb.b = Math.floor(rgb.b / count);
+    }
+
+    const rgba = `rgba(${rgb.r},${rgb.g},${rgb.b},1)`
+
+    ctx.beginPath();
+    ctx.fillStyle = rgba;
+    ctx.fillRect(x, y, w, h);
 };
 
 // Function to draw crosshair circle on canvas
@@ -296,8 +509,7 @@ export const drawDetections = (
     detections: poseDetection.Pose[], 
     canvasRef: React.RefObject<HTMLCanvasElement | null>, 
     webcamRef: React.RefObject<Webcam | null>,
-    highFpsMode: boolean = true,
-    crosshairRadius: number = 80
+    highFpsMode: boolean = true
 ) => {
     const ctx = canvasRef.current?.getContext("2d");
     const video = webcamRef.current?.video;
@@ -329,72 +541,31 @@ export const drawDetections = (
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
     // Check if any person is inside crosshair for coloring
+    // (Currently unused as crosshair drawing is commented out)
+    /*
     let anyPersonInside = false;
     if (detections.length > 0 && video) {
         anyPersonInside = detections.some(pose => 
             isPersonInCrosshair(pose, video.videoWidth, video.videoHeight, crosshairRadius)
         );
     }
+    */
     
     // Draw crosshair first (so it appears behind the pose)
-    drawCrosshair(canvasRef, webcamRef, crosshairRadius, anyPersonInside);
+    // drawCrosshair(canvasRef, webcamRef, crosshairRadius, anyPersonInside);
     
     // Use a much lower confidence threshold in high FPS mode (60fps)
     const confidenceThreshold = highFpsMode ? 0.1 : 0.5;
-    
-    // Define connections between keypoints to draw skeleton
-    // Using arrays of indices for faster lookup at high framerates
-    const connections = [
-        ['left_ear', 'left_eye'], ['left_eye', 'nose'], ['nose', 'right_eye'],
-        ['right_eye', 'right_ear'], ['left_shoulder', 'right_shoulder'],
-        ['left_shoulder', 'left_elbow'], ['left_elbow', 'left_wrist'],
-        ['right_shoulder', 'right_elbow'], ['right_elbow', 'right_wrist'],
-        ['left_shoulder', 'left_hip'], ['right_shoulder', 'right_hip'],
-        ['left_hip', 'right_hip'], ['left_hip', 'left_knee'],
-        ['left_knee', 'left_ankle'], ['right_hip', 'right_knee'],
-        ['right_knee', 'right_ankle']
-    ];
     
     // Draw all detected poses
     detections.forEach(pose => {
         if (!pose.keypoints || pose.keypoints.length === 0) return;
         
-        const keypoints = pose.keypoints;
-        
-        // Create a map of keypoints by name for easier lookup
-        const keypointMap = keypoints.reduce((map, keypoint) => {
-            if (keypoint.name) {
-                map[keypoint.name] = keypoint;
-            }
-            return map;
-        }, {} as Record<string, poseDetection.Keypoint>);
+        const keypoints:poseDetection.Keypoint[] = pose.keypoints;
         
         // Draw connections (skeleton) - optimized for high framerates
         ctx.strokeStyle = "rgba(0, 128, 255, 0.9)"; // Semi-transparent blue
-        ctx.lineWidth = 3;
-        
-        // Use a more direct rendering approach to improve performance
-        connections.forEach(([from, to]) => {
-            const fromKeypoint = keypointMap[from];
-            const toKeypoint = keypointMap[to];
-            
-            if (fromKeypoint && toKeypoint && 
-                fromKeypoint.score && fromKeypoint.score > confidenceThreshold &&
-                toKeypoint.score && toKeypoint.score > confidenceThreshold) {
-                
-                // Scale coordinates to match display size
-                const scaledFromX = fromKeypoint.x * scaleX;
-                const scaledFromY = fromKeypoint.y * scaleY;
-                const scaledToX = toKeypoint.x * scaleX;
-                const scaledToY = toKeypoint.y * scaleY;
-                
-                // Draw the line connecting keypoints
-                ctx.beginPath();
-                ctx.moveTo(scaledFromX, scaledFromY);
-                ctx.lineTo(scaledToX, scaledToY);
-                ctx.stroke();
-            }
-        });
+        ctx.lineWidth = 3;     
 
         // Draw keypoints - optimized for high framerates
         keypoints.forEach(keypoint => {
@@ -415,7 +586,9 @@ export const drawDetections = (
         });
 
         // Draw the body bounding box
-        drawBodyBoundingBox(pose, canvasRef, webcamRef, confidenceThreshold);
+        // drawBodyBoundingBox(pose, canvasRef, webcamRef, confidenceThreshold);
+        drawTorsoBox(pose, canvasRef, webcamRef, confidenceThreshold);
+
     }); 
 };
 
@@ -501,7 +674,7 @@ export default function TensorFlow() {
             
             // Draw the latest pose data at every frame for smooth animation
             if (currentPosesRef.current.length > 0) {
-                drawDetections(currentPosesRef.current, canvasRef, webcamRef, true, crosshairRadius);
+                drawDetections(currentPosesRef.current, canvasRef, webcamRef, true);
             }
             
             renderFrameId = requestAnimationFrame(renderFrame);
@@ -514,7 +687,7 @@ export default function TensorFlow() {
                 cancelAnimationFrame(renderFrameId);
             }
         };
-    }, []);
+    }, [crosshairRadius]);
     
     // Set up pose detection loop separate from rendering for better performance
     useEffect(() => {
@@ -600,9 +773,6 @@ export default function TensorFlow() {
                     // Check if person is inside crosshair (for real-time indicator)
                     const insideCrosshair = isPersonInCrosshair(detections[0], webcamRef.current.video.videoWidth, webcamRef.current.video.videoHeight, crosshairRadius);
                     setPersonCenteredStatus(insideCrosshair);
-                    
-                    // Log successful detection for debugging
-                    console.log("Detected pose at 60fps");
                 }
             } catch (error) {
                 console.error("Error detecting poses:", error);
@@ -625,7 +795,7 @@ export default function TensorFlow() {
                 clearInterval(detectionIntervalId);
             }
         };
-    }, [model]);
+    }, [model, crosshairRadius]);
     
     useEffect(() => {
         async function loadModel() {
@@ -797,7 +967,7 @@ export default function TensorFlow() {
                     
                     <div style={{ marginTop: '15px' }}>
                         <h3>MoveNet Pose Detection</h3>
-                        <p>Stand in view of the camera and move inside the circular target. When you're inside the target area, press the button to make your phone vibrate. Adjust the target size using the slider.</p>
+                        <p>Stand in view of the camera and move inside the circular target. When you&apos;re inside the target area, press the button to make your phone vibrate. Adjust the target size using the slider.</p>
                         
                         {/* Status message display */}
                         {vibrationStatus && (

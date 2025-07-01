@@ -30,6 +30,23 @@ interface GameCollection {
 
 // Set up Express and Socket.IO
 const app = express();
+
+// Express middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// CORS middleware for Express routes
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+  } else {
+    next();
+  }
+});
+
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
@@ -311,8 +328,26 @@ io.on('connection', (socket: Socket) => {
   });
 });
 
-const PORT = 3001;
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    games: Object.keys(games).length
+  });
+});
+
+// API endpoint to get games list
+app.get('/api/games', (req, res) => {
+  const availableGames = Object.values(games)
+    .filter(g => g.status === 'waiting');
+  res.json(availableGames);
+});
+
+const PORT = process.env.PORT || 3001;
 httpServer.listen(PORT, () => {
   console.log(`\n🚀 Backend server ready on http://localhost:${PORT}`);
   console.log(`🎮 Waiting for connections...\n`);
+  console.log(`📊 Health check available at http://localhost:${PORT}/health`);
 });
