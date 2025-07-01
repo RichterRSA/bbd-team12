@@ -103,12 +103,6 @@ export const extractTorsoBox = (
         keypoint.score > confidenceThreshold
     );
 
-    if (validBodyKeypoints.length < 4) {
-        let kps = "";
-        validBodyKeypoints.forEach(kp => kps += kp.name + " ");
-        return null;
-    }
-
     let result: Coordinate[] = [
         {x: 0, y: 0},
         {x: 0, y: 0},
@@ -134,6 +128,28 @@ export const extractTorsoBox = (
                 break;
         }
     });
+
+    let average: Coordinate = {x: 0, y: 0}
+    let count = 0;
+
+    result.forEach(point => {
+        if(point.x !== 0 && point.y !== 0) {
+            average.x += point.x;
+            average.y += point.y;
+            count++;
+        }
+    });
+
+    average.x /= count;
+    average.y /= count;
+
+    for (let index = 0; index < result.length; index++) {
+        const element = result[index];
+        
+        if(element.x === 0 && element.y === 0) {
+            result[index] = average;
+        }
+    }
 
     return result;
 }
@@ -366,8 +382,6 @@ const drawTorsoBox = (
         h = MIN_HEIGHT;
     }
 
-    console.log("Width: " + w + ", Height: " + h);
-
     // Create a temporary canvas to capture the current video frame
     const tempCanvas = document.createElement('canvas');
     const tempCtx = tempCanvas.getContext('2d');
@@ -414,13 +428,6 @@ const drawTorsoBox = (
 
     const rgba = `rgba(${rgb.r},${rgb.g},${rgb.b},1)`
 
-    // console.log("After getting pixel");
-
-    console.log("Color: " + rgba);
-
-
-
-    // if(width>MIN_WIDTH){
     ctx.beginPath();
     ctx.fillStyle = rgba;
     ctx.fillRect(x, y, w, h);
