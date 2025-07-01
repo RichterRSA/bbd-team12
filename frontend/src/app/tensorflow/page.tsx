@@ -692,8 +692,8 @@ export default function TensorFlow() {
                             }}
                             videoConstraints={{
                                 facingMode: "environment", // Use front camera for face tracking
-                                width: 480,
-                                height: 640,
+                                width: 320,
+                                height: 480,
                                 frameRate: { ideal: 30, min: 30 }, // Request 60fps
                                 deviceId: undefined, // Will prompt for camera selection
                             }}
