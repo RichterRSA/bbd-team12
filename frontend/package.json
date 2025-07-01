@@ -8,7 +8,7 @@
     "build": "next build",
     "build:docker": "ESLINT_NO_DEV_ERRORS=true next build",
     "start": "next start",
-    "start:https": "HTTPS=true SSL_CRT_FILE=./certificates/localhost.pem SSL_KEY_FILE=./certificates/localhost-key.pem next start -p 3000",
+    "start:https": "node server.js",
     "lint": "next lint"
   },
   "dependencies": {
