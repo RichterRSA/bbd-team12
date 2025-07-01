@@ -100,7 +100,8 @@ export const extractTorsoBox = (
     keypoint.name && 
     coreBodyKeypointNames.includes(keypoint.name) &&
     keypoint.score && 
-    keypoint.score > confidenceThreshold
+    keypoint.score > confidenceThreshold &&
+    isFinite(keypoint.x) && isFinite(keypoint.y) // Ensure coordinates are finite
   );
 
   const result: Coordinate[] = [
@@ -220,6 +221,12 @@ export const drawTorsoBox = (
     return null;
   }
 
+  // Validate scaling factors are finite
+  if (!isFinite(scaleX) || !isFinite(scaleY) || scaleX <= 0 || scaleY <= 0) {
+    console.error("Invalid scaling factors:", { scaleX, scaleY, displayWidth, displayHeight, videoWidth, videoHeight });
+    return null;
+  }
+
   const scaledX1 = minX * scaleX;
   const scaledX2 = maxX * scaleX;
 
@@ -228,6 +235,12 @@ export const drawTorsoBox = (
   
   let w = scaledX2-scaledX1;
   let h = scaledY2-scaledY1;
+
+  // Validate calculated dimensions are finite
+  if (!isFinite(w) || !isFinite(h)) {
+    console.error("Invalid calculated dimensions:", { w, h, scaledX1, scaledX2, scaledY1, scaledY2 });
+    return null;
+  }
 
   const MIN_WIDTH = 20;
   const MIN_HEIGHT = 20;
@@ -269,6 +282,17 @@ export const drawTorsoBox = (
   const sampleY = Math.max(0, Math.min(Math.round(minY - (diffH > 0 ? diffH/2/scaleY : 0)), videoHeight));
   const sampleW = Math.max(1, Math.min(Math.round(w/scaleX), videoWidth - sampleX));
   const sampleH = Math.max(1, Math.min(Math.round(h/scaleY), videoHeight - sampleY));
+
+  // Validate all values are finite numbers before calling getImageData
+  if (!isFinite(sampleX) || !isFinite(sampleY) || !isFinite(sampleW) || !isFinite(sampleH)) {
+    console.error("Invalid sample coordinates:", { sampleX, sampleY, sampleW, sampleH });
+    return null;
+  }
+
+  if (sampleW <= 0 || sampleH <= 0) {
+    console.error("Invalid sample dimensions:", { sampleW, sampleH });
+    return null;
+  }
 
   // Get image data from the video frame (not the overlay canvas)
   const data: ImageData = tempCtx.getImageData(sampleX, sampleY, sampleW, sampleH);
@@ -482,7 +506,8 @@ export const extractTorsoColor = (
     keypoint.name && 
     coreBodyKeypointNames.includes(keypoint.name) &&
     keypoint.score && 
-    keypoint.score > confidenceThreshold
+    keypoint.score > confidenceThreshold &&
+    isFinite(keypoint.x) && isFinite(keypoint.y) // Ensure coordinates are finite
   );
 
   if (validBodyKeypoints.length < 3) {
@@ -518,6 +543,12 @@ export const extractTorsoColor = (
     if (keypoint.y > maxY) maxY = keypoint.y;
   });
 
+  // Validate that we found valid bounds
+  if (minX === Infinity || maxX === -Infinity || minY === Infinity || maxY === -Infinity) {
+    console.error("Could not determine valid torso bounds");
+    return null;
+  }
+
   // Add some padding and ensure valid bounds
   const padding = 10;
   const x = Math.max(0, Math.round(minX - padding));
@@ -525,7 +556,14 @@ export const extractTorsoColor = (
   const width = Math.max(1, Math.min(Math.round(maxX - minX + 2 * padding), video.videoWidth - x));
   const height = Math.max(1, Math.min(Math.round(maxY - minY + 2 * padding), video.videoHeight - y));
 
+  // Validate all coordinates and dimensions are finite and valid
+  if (!isFinite(x) || !isFinite(y) || !isFinite(width) || !isFinite(height)) {
+    console.error("Invalid torso extraction coordinates:", { x, y, width, height, minX, maxX, minY, maxY });
+    return null;
+  }
+
   if (width <= 0 || height <= 0) {
+    console.error("Invalid torso extraction dimensions:", { width, height });
     return null;
   }
 
