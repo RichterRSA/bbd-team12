@@ -172,9 +172,19 @@ main() {
     if pgrep nginx > /dev/null; then
         success "  ✓ Running"
         if curl -s "http://localhost/health" > /dev/null 2>&1; then
-            success "  ✓ Proxy health check passed"
+            success "  ✓ HTTP health check passed"
         else
-            warning "  ⚠ Proxy health check failed"
+            warning "  ⚠ HTTP health check failed"
+        fi
+        
+        if ss -tlnp | grep -q ":443 "; then
+            if curl -s -k "https://localhost/health" > /dev/null 2>&1; then
+                success "  ✓ HTTPS health check passed"
+            else
+                warning "  ⚠ HTTPS health check failed"
+            fi
+        else
+            warning "  ⚠ HTTPS not available"
         fi
     else
         error "  ✗ Not running"
@@ -185,7 +195,13 @@ main() {
     log "Application URLs:"
     echo "=================================="
     if pgrep nginx > /dev/null; then
-        success "  ✓ Main Application: http://localhost"
+        if ss -tlnp | grep -q ":443 "; then
+            success "  ✓ Main Application (HTTPS): https://localhost"
+            success "  ✓ HTTP Redirect: http://localhost"
+        else
+            success "  ✓ Main Application (HTTP): http://localhost"
+            warning "  ⚠ HTTPS not available (run: sudo ./setup-ssl.sh)"
+        fi
     else
         error "  ✗ Main Application: Not available (nginx not running)"
     fi

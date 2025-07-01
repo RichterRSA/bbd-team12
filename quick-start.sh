@@ -100,7 +100,21 @@ fi
 # Start nginx if not running
 if ! pgrep nginx > /dev/null; then
     log "Starting nginx..."
-    nginx -c "$PROJECT_ROOT/nginx.conf"
+    
+    # Choose configuration based on SSL availability
+    local nginx_config="$PROJECT_ROOT/nginx-http.conf"
+    local cert_file="/etc/ssl/certs/localhost.pem"
+    local key_file="/etc/ssl/private/localhost-key.pem"
+    
+    if [ -f "$cert_file" ] && [ -f "$key_file" ]; then
+        nginx_config="$PROJECT_ROOT/nginx.conf"
+        log "Using HTTPS configuration (SSL certificates found)"
+    else
+        log "Using HTTP-only configuration (SSL certificates not found)"
+        log "To set up HTTPS, run: sudo ./setup-ssl.sh"
+    fi
+    
+    nginx -c "$nginx_config"
     success "Nginx started successfully"
 else
     success "Nginx already running"
@@ -123,15 +137,27 @@ else
 fi
 
 if pgrep nginx > /dev/null; then
-    success "✓ Nginx running on http://localhost:80"
+    if ss -tlnp | grep -q ":443 "; then
+        success "✓ Nginx running with HTTPS on https://localhost:443"
+    else
+        success "✓ Nginx running on http://localhost:80"
+    fi
 else
     error "✗ Nginx not running"
 fi
 
 echo "=================================="
-success "Application is available at: http://localhost"
+if ss -tlnp | grep -q ":443 "; then
+    success "Application is available at: https://localhost"
+    log "(HTTP requests will redirect to HTTPS)"
+else
+    success "Application is available at: http://localhost"
+fi
 log "Logs are available in: $PROJECT_ROOT/logs/"
 log "To stop services, run: ./stop.sh"
 log "To check status, run: ./status.sh"
+if ! ss -tlnp | grep -q ":443 "; then
+    log "To set up HTTPS, run: sudo ./setup-ssl.sh"
+fi
 
 success "All services started successfully and running in background!"

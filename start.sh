@@ -173,11 +173,23 @@ start_frontend() {
 start_nginx() {
     log "Starting nginx..."
     
+    # Choose configuration based on SSL availability
+    local nginx_config="$PROJECT_ROOT/nginx-http.conf"
+    local cert_file="/etc/ssl/certs/localhost.pem"
+    local key_file="/etc/ssl/private/localhost-key.pem"
+    
+    if [ -f "$cert_file" ] && [ -f "$key_file" ]; then
+        nginx_config="$PROJECT_ROOT/nginx.conf"
+        log "Using HTTPS configuration (SSL certificates found)"
+    else
+        log "Using HTTP-only configuration (SSL certificates not found)"
+    fi
+    
     # Test nginx configuration
-    sudo nginx -t -c "$PROJECT_ROOT/nginx.conf"
+    sudo nginx -t -c "$nginx_config"
     
     # Start nginx
-    sudo nginx -c "$PROJECT_ROOT/nginx.conf"
+    sudo nginx -c "$nginx_config"
     
     success "Nginx started successfully"
 }
@@ -190,6 +202,31 @@ check_nginx() {
         error "  CentOS/RHEL: sudo yum install nginx"
         error "  macOS: brew install nginx"
         exit 1
+    fi
+}
+
+# Function to check SSL certificates
+check_ssl() {
+    local cert_file="/etc/ssl/certs/localhost.pem"
+    local key_file="/etc/ssl/private/localhost-key.pem"
+    
+    if [ ! -f "$cert_file" ] || [ ! -f "$key_file" ]; then
+        warning "SSL certificates not found!"
+        log "HTTPS will not be available without SSL certificates."
+        log "To set up SSL certificates, run: sudo ./setup-ssl.sh"
+        
+        read -p "Do you want to continue without HTTPS? (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            error "SSL certificates required for HTTPS. Exiting."
+            exit 1
+        fi
+        
+        warning "Continuing without HTTPS support"
+        return 1
+    else
+        success "SSL certificates found - HTTPS will be available"
+        return 0
     fi
 }
 
@@ -230,15 +267,28 @@ show_status() {
     fi
     
     if pgrep nginx > /dev/null; then
-        success "✓ Nginx running on http://localhost:80"
+        success "✓ Nginx running"
+        if ss -tlnp | grep -q ":443 "; then
+            success "✓ HTTPS available on https://localhost:443"
+            success "✓ HTTP redirects to HTTPS on http://localhost:80"
+        else
+            success "✓ HTTP available on http://localhost:80"
+            warning "⚠ HTTPS not available (SSL certificates not configured)"
+        fi
     else
         error "✗ Nginx not running"
     fi
     
     echo "=================================="
-    log "Application is available at: http://localhost"
+    if ss -tlnp | grep -q ":443 "; then
+        log "Application is available at: https://localhost"
+        log "(HTTP requests will redirect to HTTPS)"
+    else
+        log "Application is available at: http://localhost"
+    fi
     log "Logs are available in: $PROJECT_ROOT/logs/"
     log "To stop services, run: ./stop.sh"
+    log "To set up HTTPS, run: sudo ./setup-ssl.sh"
 }
 
 # Main execution
@@ -248,6 +298,10 @@ main() {
     # Check prerequisites
     check_nodejs
     check_nginx
+    
+    # Check SSL certificates (optional)
+    log "Checking SSL certificate availability..."
+    check_ssl || log "Continuing without HTTPS support"
     
     # Create necessary directories
     create_directories
