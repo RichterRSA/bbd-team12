@@ -82,10 +82,10 @@ stop_backend() {
         rm -f "$PROJECT_ROOT/pids/backend.pid"
     fi
     
-    # Kill any remaining processes on port 8080
-    if check_port 8080; then
-        warning "Port 8080 still in use, killing processes..."
-        ss -tlnp | grep ":8080 " | awk '{print $6}' | grep -o 'pid=[0-9]*' | cut -d= -f2 | xargs kill -9 2>/dev/null || true
+    # Kill any remaining processes on port 3001
+    if check_port 3001; then
+        warning "Port 3001 still in use, killing processes..."
+        ss -tlnp | grep ":3001 " | awk '{print $6}' | grep -o 'pid=[0-9]*' | cut -d= -f2 | xargs kill -9 2>/dev/null || true
     fi
     
     # Kill any node processes running server.js
@@ -159,8 +159,8 @@ show_final_status() {
     log "Final Service Status:"
     echo "=================================="
     
-    if check_port 8080; then
-        error "✗ Backend still running on port 8080"
+    if check_port 3001; then
+        error "✗ Backend still running on port 3001"
     else
         success "✓ Backend stopped"
     fi

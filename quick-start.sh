@@ -74,15 +74,15 @@ mkdir -p "$PROJECT_ROOT/pids"
 log "Starting BBD Team 12 Application (Quick Start)..."
 
 # Start backend
-if ! check_port 8080; then
+if ! check_port 3001; then
     log "Starting backend server..."
     cd "$PROJECT_ROOT/backend"
     setsid nohup npm start > ../logs/backend.log 2>&1 < /dev/null &
     echo $! > ../pids/backend.pid
     cd "$PROJECT_ROOT"
-    wait_for_service 8080 "Backend"
+    wait_for_service 3001 "Backend"
 else
-    success "Backend already running on port 8080"
+    success "Backend already running on port 3001"
 fi
 
 # Start frontend  
@@ -124,8 +124,8 @@ fi
 log "Service Status:"
 echo "=================================="
 
-if check_port 8080; then
-    success "✓ Backend running on http://localhost:8080"
+if check_port 3001; then
+    success "✓ Backend running on http://localhost:3001"
 else
     error "✗ Backend not running"
 fi

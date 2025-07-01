@@ -60,7 +60,7 @@ cleanup() {
     sleep 2
     
     # Force kill if still running
-    for port in 3000 8080; do
+    for port in 3000 3001; do
         if check_port $port; then
             ss -tlnp | grep ":$port " | awk '{print $6}' | grep -o 'pid=[0-9]*' | cut -d= -f2 | xargs kill -9 2>/dev/null || true
         fi
@@ -97,10 +97,10 @@ start_backend_dev() {
     log "Starting backend in development mode..."
     cd "$PROJECT_ROOT/backend"
     
-    # Kill any existing process on port 8080
-    if check_port 8080; then
-        warning "Port 8080 is in use, killing existing process..."
-        ss -tlnp | grep ":8080 " | awk '{print $6}' | grep -o 'pid=[0-9]*' | cut -d= -f2 | xargs kill -9 2>/dev/null || true
+    # Kill any existing process on port 3001
+    if check_port 3001; then
+        warning "Port 3001 is in use, killing existing process..."
+        ss -tlnp | grep ":3001 " | awk '{print $6}' | grep -o 'pid=[0-9]*' | cut -d= -f2 | xargs kill -9 2>/dev/null || true
         sleep 1
     fi
     
@@ -113,8 +113,8 @@ start_backend_dev() {
     # Wait for backend to be ready
     local attempts=0
     while [ $attempts -lt 15 ]; do
-        if check_port 8080; then
-            success "Backend is ready on http://localhost:8080"
+        if check_port 3001; then
+            success "Backend is ready on http://localhost:3001"
             return 0
         fi
         sleep 2
@@ -165,8 +165,8 @@ show_dev_status() {
     log "Development Environment Status:"
     echo "=================================="
     
-    if check_port 8080; then
-        success "✓ Backend: http://localhost:8080"
+    if check_port 3001; then
+        success "✓ Backend: http://localhost:3001"
     else
         error "✗ Backend: Not running"
     fi
@@ -180,7 +180,7 @@ show_dev_status() {
     echo "=================================="
     log "Development servers are running!"
     log "Frontend: http://localhost:3000"
-    log "Backend: http://localhost:8080"
+    log "Backend: http://localhost:3001"
     log "Press Ctrl+C to stop both servers"
 }
 

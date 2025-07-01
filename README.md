@@ -54,7 +54,7 @@ Generates self-signed SSL certificates for HTTPS support
 ## Service Ports
 
 - **Frontend**: 3000 (Next.js)
-- **Backend**: 8080 (Express + Socket.IO)
+- **Backend**: 3001 (Express + Socket.IO)
 - **HTTP**: 80 (nginx proxy)
 - **HTTPS**: 443 (nginx proxy with SSL)
 
@@ -63,13 +63,13 @@ Generates self-signed SSL certificates for HTTPS support
 ### HTTP Mode
 - Main Application: http://localhost
 - Direct Frontend: http://localhost:3000
-- Direct Backend: http://localhost:8080
+- Direct Backend: http://localhost:3001
 
 ### HTTPS Mode
 - Main Application: https://localhost
 - HTTP requests redirect to HTTPS
 - Direct Frontend: http://localhost:3000
-- Direct Backend: http://localhost:8080
+- Direct Backend: http://localhost:3001
 
 ## SSL Certificate Setup
 
@@ -117,7 +117,7 @@ tail -f logs/frontend.log
 ## Troubleshooting
 
 ### Services not starting
-1. Check if ports are already in use: `ss -tlnp | grep -E ":3000|:8080|:80|:443"`
+1. Check if ports are already in use: `ss -tlnp | grep -E ":3000|:3001|:80|:443"`
 2. Check logs: `./status.sh`
 3. Restart services: `./stop.sh && ./start.sh`
 

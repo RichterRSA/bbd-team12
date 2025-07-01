@@ -345,7 +345,7 @@ app.get('/api/games', (req, res) => {
   res.json(availableGames);
 });
 
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 3001;
 httpServer.listen(PORT, () => {
   console.log(`\n🚀 Backend server ready on http://localhost:${PORT}`);
   console.log(`🎮 Waiting for connections...\n`);

@@ -78,7 +78,7 @@ cleanup() {
     fi
     
     # Kill processes on our ports
-    for port in 3000 8080; do
+    for port in 3000 3001; do
         if check_port $port; then
             warning "Port $port is in use, attempting to free it..."
             ss -tlnp | grep ":$port " | awk '{print $6}' | grep -o 'pid=[0-9]*' | cut -d= -f2 | xargs kill -9 2>/dev/null || true
@@ -150,7 +150,7 @@ start_backend() {
     cd "$PROJECT_ROOT"
     
     # Wait for backend to be ready
-    wait_for_service 8080 "Backend"
+    wait_for_service 3001 "Backend"
 }
 
 # Function to start the frontend
@@ -254,8 +254,8 @@ show_status() {
     log "Service Status:"
     echo "=================================="
     
-    if check_port 8080; then
-        success "✓ Backend running on http://localhost:8080"
+    if check_port 3001; then
+        success "✓ Backend running on http://localhost:3001"
     else
         error "✗ Backend not running"
     fi

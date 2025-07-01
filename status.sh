@@ -164,7 +164,7 @@ main() {
     echo "=================================="
     
     # Check services
-    check_service_health "Backend" 8080 "http://localhost:8080/health"
+    check_service_health "Backend" 3001 "http://localhost:3001/health"
     check_service_health "Frontend" 3000 "http://localhost:3000"
     
     # Check nginx
@@ -212,8 +212,8 @@ main() {
         error "  ✗ Direct Frontend: Not available"
     fi
     
-    if check_port 8080; then
-        success "  ✓ Direct Backend: http://localhost:8080"
+    if check_port 3001; then
+        success "  ✓ Direct Backend: http://localhost:3001"
     else
         error "  ✗ Direct Backend: Not available"
     fi
