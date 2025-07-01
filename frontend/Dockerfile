@@ -19,5 +19,5 @@ RUN npm run build:docker
 # Expose the port the app runs on (HTTPS on port 3000)
 EXPOSE 3000
 
-# Start the application with HTTPS
-CMD ["npm", "run", "start:https"]
+# Start the application with HTTPS using custom server
+CMD ["node", "server.js"]
