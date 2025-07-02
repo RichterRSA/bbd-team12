@@ -1,4 +1,3 @@
-
 "use client";
 import "@tensorflow/tfjs-backend-webgl";
 import * as poseDetection from "@tensorflow-models/pose-detection";
@@ -10,6 +9,9 @@ import QrScanner from "qr-scanner";
 import { 
   requestCameraPermission, 
   drawDetections,
+  isPersonInCrosshair,
+  triggerVibration,
+  drawCrosshair,
 } from "../../utils/poseDetection";
 import { setupQrScannerWithWebcam, createGameQrHandlers } from "../../utils/qrCodeScanning";
 //import { drawCrosshair, isPersonInCrosshair, triggerVibration } from "../../utils/poseDetection";
@@ -35,131 +37,7 @@ interface GameState {
   settings: { maxPlayers: number; gameMode: string };
 }
 
-// Function to trigger phone vibration
-const triggerVibration = () => {
-    if (navigator.vibrate) {
-        // Vibrate for 200ms
-        navigator.vibrate(200);
-        console.log("Phone vibration triggered");
-    } else {
-        console.log("Vibration API not supported on this device");
-        // Fallback: show visual feedback
-        return false;
-    }
-    return true;
-};
 
-// Function to check if person is inside the crosshair circle
-const isPersonInCrosshair = (
-    pose: poseDetection.Pose,
-    videoWidth: number,
-    videoHeight: number,
-    crosshairRadius: number,
-    confidenceThreshold: number = 0.3
-): boolean => {
-    if (!pose.keypoints || pose.keypoints.length === 0) {
-        return false;
-    }
-
-    // Get key body points for center calculation
-    const coreKeypoints = pose.keypoints.filter(keypoint => 
-        keypoint.name && 
-        ['nose', 'left_shoulder', 'right_shoulder', 'left_hip', 'right_hip'].includes(keypoint.name) &&
-        keypoint.score && 
-        keypoint.score > confidenceThreshold
-    );
-
-    if (coreKeypoints.length < 3) {
-        return false;
-    }
-
-    // Calculate the center of the person
-    const avgX = coreKeypoints.reduce((sum, kp) => sum + kp.x, 0) / coreKeypoints.length;
-    const avgY = coreKeypoints.reduce((sum, kp) => sum + kp.y, 0) / coreKeypoints.length;
-
-    // Calculate frame center
-    const frameCenterX = videoWidth / 2;
-    const frameCenterY = videoHeight / 2;
-
-    // Calculate distance from person center to frame center
-    const distance = Math.sqrt(
-        Math.pow(avgX - frameCenterX, 2) + Math.pow(avgY - frameCenterY, 2)
-    );
-
-    // Check if person is within the crosshair circle
-    return distance <= crosshairRadius;
-};
-
-
-// Function to check if a person is inside the crosshair
-const drawCrosshair = (
-    canvasRef: React.RefObject<HTMLCanvasElement | null>,
-    webcamRef: React.RefObject<Webcam | null>,
-    crosshairRadius: number,
-    isPersonInside: boolean = false
-) => {
-    const ctx = canvasRef.current?.getContext("2d");
-    const video = webcamRef.current?.video;
-
-    if (!ctx || !video) {
-        return;
-    }
-
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    // Get scaling factors
-    const videoWidth = video.videoWidth;
-    const videoHeight = video.videoHeight;
-    const displayWidth = video.clientWidth;
-    const displayHeight = video.clientHeight;
-    const scaleX = displayWidth / videoWidth;
-    const scaleY = displayHeight / videoHeight;
-
-    // Calculate center of the display
-    const centerX = displayWidth / 2;
-    const centerY = displayHeight / 2;
-
-    // Scale the radius to match display coordinates
-    const scaledRadius = crosshairRadius * Math.min(scaleX, scaleY);
-
-    // Draw outer circle
-    ctx.strokeStyle = isPersonInside ? "rgba(0, 255, 0, 0.8)" : "rgba(255, 255, 255, 0.8)";
-    ctx.lineWidth = 3;
-    ctx.setLineDash([]);
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, scaledRadius, 0, 2 * Math.PI);
-    ctx.stroke();
-
-    // Draw inner circle (smaller)
-    ctx.strokeStyle = isPersonInside ? "rgba(0, 255, 0, 0.6)" : "rgba(255, 255, 255, 0.6)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, scaledRadius * 0.7, 0, 2 * Math.PI);
-    ctx.stroke();
-
-    // Draw crosshair lines
-    ctx.strokeStyle = isPersonInside ? "rgba(0, 255, 0, 0.7)" : "rgba(255, 255, 255, 0.7)";
-    ctx.lineWidth = 2;
-    
-    // Horizontal line
-    ctx.beginPath();
-    ctx.moveTo(centerX - scaledRadius * 0.3, centerY);
-    ctx.lineTo(centerX + scaledRadius * 0.3, centerY);
-    ctx.stroke();
-    
-    // Vertical line
-    ctx.beginPath();
-    ctx.moveTo(centerX, centerY - scaledRadius * 0.3);
-    ctx.lineTo(centerX, centerY + scaledRadius * 0.3);
-    ctx.stroke();
-
-    // Draw center dot
-    ctx.fillStyle = isPersonInside ? "rgba(0, 255, 0, 0.9)" : "rgba(255, 255, 255, 0.9)";
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, 3, 0, 2 * Math.PI);
-    ctx.fill();
-};
 
 
 export default function TensorFlow() {
@@ -185,6 +63,21 @@ export default function TensorFlow() {
   const lastFpsUpdateRef = useRef<number>(0);
   const [vibrationStatus, setVibrationStatus] = useState<string>("");
   const [crosshairRadius, setCrosshairRadius] = useState<number>(80);
+
+  // Calculate crosshair radius based on camera resolution (always 480px height)
+  useEffect(() => {
+    const updateCrosshairSize = () => {
+      // Use the camera's vertical resolution (480px) as the reference
+      const cameraHeight = 480;
+      // Set crosshair to be 15% of the camera's vertical resolution
+      const responsiveRadius = cameraHeight * 0.15;
+      setCrosshairRadius(responsiveRadius);
+      console.log(`Crosshair radius set to ${responsiveRadius}px based on camera height ${cameraHeight}px`);
+    };
+
+    updateCrosshairSize();
+    // No need for resize listener since camera resolution is fixed
+  }, []);
 
   // Initialize QR Scanner when webcam is ready
   useEffect(() => {
@@ -361,8 +254,8 @@ export default function TensorFlow() {
       if (poses.length > 0) {
         isPersonInside = isPersonInCrosshair(poses[0], video.videoWidth, video.videoHeight, crosshairRadius);
       }
-      drawCrosshair(canvasRef, webcamRef, crosshairRadius, isPersonInside);
-      drawDetections(poses, canvasRef, webcamRef, true);
+      drawCrosshair(canvasRef, webcamRef, crosshairRadius, isPersonInside, "rgba(255, 255, 255, 0.6)");
+      drawDetections(poses, canvasRef, webcamRef, true, crosshairRadius);
       const now = Date.now();
       if (isPersonInside && player.weapon && now - lastShotTimeRef.current > 1000 && player.status === "alive") {
         socketRef.current?.emit("shoot", {
@@ -396,17 +289,36 @@ export default function TensorFlow() {
   }
 
   return (
-    <div style={{ position: 'relative', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'stretch', padding: '10px' }}>
-      <div style={{ position: 'relative', flex: 1, minHeight: '0' }}>
+    <div style={{ 
+      position: 'fixed', 
+      top: 0, 
+      left: 0, 
+      right: 0, 
+      bottom: 0, 
+      width: '100%', 
+      height: '100%', 
+      overflow: 'hidden',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center'
+    }}>
+      <div style={{ position: 'relative', width: '100%', height: '100%' }}>
         <Webcam
           audio={false}
           ref={webcamRef}
           screenshotFormat="image/jpeg"
-          style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '8px' }}
+          style={{ 
+            width: '100%', 
+            height: '100%', 
+            objectFit: 'cover',
+            position: 'absolute',
+            top: 0,
+            left: 0
+          }}
           videoConstraints={{
             facingMode: "environment",
-            width: 320,
-            height: 480,
+            width: { ideal: 640, max: 1280 },
+            height: { ideal: 480, max: 480 },
             frameRate: { ideal: 30, min: 30 },
           }}
           mirrored={false}
@@ -435,7 +347,7 @@ export default function TensorFlow() {
             📱 QR: {qrCodeText}
           </div>
         )}
-        <div style={{ position: 'absolute', bottom: '10px', left: '10px', background: 'rgba(0,0,0,0.5)', color: 'white', padding: '5px 10px', borderRadius: '15px', fontSize: '12px' }}>
+        <div style={{ position: 'absolute', bottom: '20px', left: '20px', background: 'rgba(0,0,0,0.5)', color: 'white', padding: '5px 10px', borderRadius: '15px', fontSize: '12px' }}>
           {isDetecting ? 'MoveNet Active' : 'Initializing...'}
           {fps > 0 && ` • Camera: ${fps} FPS`}
           {detectionFps > 0 && ` • Detection: ${detectionFps} FPS`}
@@ -444,7 +356,7 @@ export default function TensorFlow() {
         {/* Notifications Panel */}
         <div style={{
           position: 'absolute',
-          right: '10px',
+          right: '20px',
           top: '25%',
           width: '20%',
           maxWidth: '200px',
@@ -464,10 +376,10 @@ export default function TensorFlow() {
         <button
           style={{
             position: 'absolute',
-            bottom: 0,
+            bottom: '20px',
             left: '10%',
             width: '80%',
-            height: '40vh',
+            height: '35%',
             background: 'transparent',
             border: '2px solid black',
             borderRadius: '10px',
