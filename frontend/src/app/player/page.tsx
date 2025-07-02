@@ -5,7 +5,6 @@ import React, { useEffect, useRef, useState } from "react";
 import Webcam from "react-webcam";
 import * as poseDetection from "@tensorflow-models/pose-detection";
 import { io, Socket } from "socket.io-client";
-import { drawCrosshair, isPersonInCrosshair, triggerVibration } from "../tensorflow/page";
 import QrScanner from "qr-scanner";
 import { drawDetections } from "@/utils/poseDetection";
 import { setupQrScannerWithWebcam, createThrottledQrHandler, createGameQrHandlers } from "@/utils/qrCodeScanning";
@@ -339,3 +338,15 @@ export default function PlayerView() {
     </div>
   );
 }
+function triggerVibration(): void {
+  throw new Error("Function not implemented.");
+}
+
+function isPersonInCrosshair(arg0: poseDetection.Pose, videoWidth: number, videoHeight: number, CROSSHAIR_RADIUS: number): boolean {
+  throw new Error("Function not implemented.");
+}
+
+function drawCrosshair(canvasRef: React.RefObject<HTMLCanvasElement | null>, webcamRef: React.RefObject<Webcam | null>, CROSSHAIR_RADIUS: number, isPersonInside: boolean) {
+  throw new Error("Function not implemented.");
+}
+
