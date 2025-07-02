@@ -1,10 +1,24 @@
 "use client";
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import io, { Socket } from 'socket.io-client';
+import Webcam from "react-webcam";
+import * as tf from '@tensorflow/tfjs';
+import '@tensorflow/tfjs-backend-webgl';
+import * as poseDetection from '@tensorflow-models/pose-detection';
 import { 
   Users, Play, Plus, Crown, RefreshCw, AlertCircle, Wifi, WifiOff, 
-  ArrowLeft, Shield, Zap, MessageSquare, Settings, LogOut, UserPlus
+  ArrowLeft, Shield, Zap, MessageSquare, Settings, LogOut, UserPlus, Camera, X
 } from 'lucide-react';
+import {
+  requestCameraPermission,
+  extractTorsoBox,
+  extractTorsoColor,
+  categorizeColor,
+  drawDetections,
+  isMobileDevice,
+  type Coordinate
+} from '@/utils/poseDetection';
+
 
 interface Player {
   id: string;
@@ -12,6 +26,8 @@ interface Player {
   isHost: boolean;
   team: 'red' | 'blue';
   health: number;
+  shirtColor?: string;
+  isConfirmed?: boolean;
 }
 
 interface GameSettings {
@@ -23,8 +39,13 @@ interface GameState {
   id: string;
   name: string;
   players: Player[];
-  status: 'waiting' | 'in-progress' | 'finished';
+  status: 'waiting' | 'confirming-colors' | 'in-progress' | 'finished';
   settings: GameSettings;
+  confirmationPhase?: {
+    currentTargetIndex: number;
+    confirmations: { [key: string]: string };
+    allConfirmed: boolean;
+  };
 }
 
 interface GameCreatedData {
@@ -54,6 +75,21 @@ const Lobby = () => {
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [fadeScreen, setFadeScreen] = useState(false);
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'info' | 'error'} | null>(null);
+  const [selectedColor, setSelectedColor] = useState<string>('');
+  const [isSubmittingColor, setIsSubmittingColor] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
+  const [detectedColor, setDetectedColor] = useState<string>('');
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [colorConfidence, setColorConfidence] = useState<number>(0);
+  const webcamRef = useRef<Webcam>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [poseModel, setPoseModel] = useState<poseDetection.PoseDetector | null>(null);
+  const [currentPoses, setCurrentPoses] = useState<poseDetection.Pose[]>([]);
+  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
+
+
+
+  // TensorFlow.js helper functions for pose detection and color analysis
 
   // Connect to Socket.IO server
   useEffect(() => {
@@ -105,6 +141,104 @@ const Lobby = () => {
     };
   }, []);
 
+  // Load pose detection model and request camera permission
+  useEffect(() => {
+    async function initializeCV() {
+      // Ensure TensorFlow is ready
+      await tf.ready();
+      console.log("TensorFlow.js is ready");
+
+      // Request camera permission
+      const hasPermission = await requestCameraPermission(showNotification);
+      setHasCameraPermission(hasPermission);
+
+      // Load pose detection model
+      try {
+        console.log("Loading MoveNet model...");
+        const modelConfig: poseDetection.MoveNetModelConfig = {
+          modelType: poseDetection.movenet.modelType.MULTIPOSE_LIGHTNING,
+          enableSmoothing: false,
+          minPoseScore: 0.1,
+          enableTracking: false,
+        };
+        
+        const model = await poseDetection.createDetector(
+          poseDetection.SupportedModels.MoveNet,
+          modelConfig
+        );
+        setPoseModel(model);
+        console.log("MoveNet model loaded successfully");
+      } catch (error) {
+        console.error("Error loading MoveNet model:", error);
+      }
+    }
+
+    initializeCV();
+  }, []);
+
+  // Pose detection loop when camera is active
+  useEffect(() => {
+    let detectionInterval: NodeJS.Timeout | null = null;
+
+    const detectPoses = async () => {
+      if (!poseModel || !webcamRef.current?.video || !showCamera) return;
+
+      const video = webcamRef.current.video;
+      if (video.readyState !== 4) return;
+
+      try {
+        const poses = await poseModel.estimatePoses(video, {
+          flipHorizontal: false,
+          maxPoses: 1
+        });
+
+        setCurrentPoses(poses);
+
+        // If we have a pose, analyze the shirt color
+        if (poses.length > 0 && isAnalyzing) {
+          const colorResult = extractTorsoColor(poses[0], video);
+          if (colorResult) {
+            setDetectedColor(colorResult.color);
+            setColorConfidence(colorResult.confidence);
+          }
+        }
+      } catch (error) {
+        console.error("Error detecting poses:", error);
+      }
+    };
+
+    if (showCamera && poseModel) {
+      detectionInterval = setInterval(detectPoses, 100); // 10 FPS
+    }
+
+    return () => {
+      if (detectionInterval) clearInterval(detectionInterval);
+    };
+  }, [showCamera, poseModel, isAnalyzing]);
+
+  // Drawing/rendering loop for pose overlay
+  useEffect(() => {
+    let renderFrameId: number | null = null;
+    
+    const renderFrame = () => {
+      if (currentPoses.length > 0 && showCamera) {
+        drawDetections(currentPoses, canvasRef, webcamRef);
+      }
+      
+      renderFrameId = requestAnimationFrame(renderFrame);
+    };
+    
+    if (showCamera) {
+      renderFrameId = requestAnimationFrame(renderFrame);
+    }
+    
+    return () => {
+      if (renderFrameId !== null) {
+        cancelAnimationFrame(renderFrameId);
+      }
+    };
+  }, [currentPoses, showCamera]);
+
   // Socket event handlers
   useEffect(() => {
     if (!socket) return;
@@ -142,6 +276,30 @@ const Lobby = () => {
       setTimeout(() => setErrorMsg(null), 5000);
     });
 
+    socket.on('colorConfirmationStarted', (data: { gameState: GameState; currentTarget: Player }) => {
+      setGameState(data.gameState);
+      showNotification(`Color confirmation started! Current target: ${data.currentTarget.name}`, 'info');
+    });
+
+    socket.on('nextColorTarget', (data: { gameState: GameState; currentTarget: Player }) => {
+      setGameState(data.gameState);
+      showNotification(`Next target: ${data.currentTarget.name}`, 'info');
+    });
+
+    socket.on('allColorsConfirmed', (data: { gameState: GameState; playerColors: Array<{name: string, color: string}> }) => {
+      setGameState(data.gameState);
+      showNotification('All shirt colors confirmed! Ready to start game.', 'success');
+    });
+
+    socket.on('colorConfirmationUpdate', (data: { gameState: GameState; confirmationsReceived: number; confirmationsNeeded: number }) => {
+      setGameState(data.gameState);
+    });
+
+    socket.on('colorConfirmationSkipped', (data: { gameState: GameState }) => {
+      setGameState(data.gameState);
+      showNotification('Color confirmation skipped', 'info');
+    });
+
     // Request the initial game list
     socket.emit('requestGameList');
 
@@ -152,6 +310,11 @@ const Lobby = () => {
       socket.off('gameStateUpdate');
       socket.off('gameList');
       socket.off('error');
+      socket.off('colorConfirmationStarted');
+      socket.off('nextColorTarget');
+      socket.off('allColorsConfirmed');
+      socket.off('colorConfirmationUpdate');
+      socket.off('colorConfirmationSkipped');
     };
   }, [socket]);
 
@@ -231,6 +394,95 @@ const Lobby = () => {
     // Add a timeout to set loadingGames back to false in case server doesn't respond
     setTimeout(() => setLoadingGames(false), 3000);
   }, [socket]);
+
+  const handleStartColorConfirmation = useCallback(() => {
+    if (!socket || !gameId || !isHost) return;
+    
+    socket.emit('startColorConfirmation', gameId);
+    showNotification('Starting color confirmation...', 'info');
+  }, [socket, gameId, isHost]);
+
+  const handleSkipColorConfirmation = useCallback(() => {
+    if (!socket || !gameId || !isHost) return;
+    
+    socket.emit('skipColorConfirmation', gameId);
+  }, [socket, gameId, isHost]);
+
+  const handleSubmitColorConfirmation = useCallback((targetPlayerId: string, color: string) => {
+    if (!socket || !gameId || !color) return;
+    
+    setIsSubmittingColor(true);
+    socket.emit('submitColorConfirmation', { 
+      gameId, 
+      targetPlayerId, 
+      detectedColor: color 
+    });
+    setSelectedColor('');
+    setShowCamera(false);
+    setDetectedColor('');
+    setTimeout(() => setIsSubmittingColor(false), 1000);
+  }, [socket, gameId]);
+
+  // Color detection function using computer vision and pose detection
+  const analyzeShirtColor = useCallback(async () => {
+    if (!webcamRef.current?.video || !poseModel) {
+      console.log("Video or pose model not ready");
+      return null;
+    }
+
+    const video = webcamRef.current.video;
+    if (video.readyState !== 4) return null;
+
+    try {
+      // Get current pose
+      const poses = await poseModel.estimatePoses(video, {
+        flipHorizontal: false,
+        maxPoses: 1
+      });
+
+      if (poses.length === 0) {
+        console.log("No person detected");
+        return null;
+      }
+
+      // Extract color from torso region
+      const colorResult = extractTorsoColor(poses[0], video);
+      if (colorResult) {
+        setDetectedColor(colorResult.color);
+        setColorConfidence(colorResult.confidence);
+        return colorResult;
+      }
+    } catch (error) {
+      console.error("Error analyzing shirt color:", error);
+    }
+
+    return null;
+  }, [poseModel]);
+
+  // Draw pose detection overlay
+  const drawPoseOverlay = useCallback(() => {
+    if (currentPoses.length > 0 && showCamera) {
+      drawDetections(currentPoses, canvasRef, webcamRef);
+    }
+  }, [currentPoses, showCamera]);
+
+  // Update pose overlay when poses change
+  useEffect(() => {
+    if (showCamera) {
+      drawPoseOverlay();
+    }
+  }, [currentPoses, showCamera, drawPoseOverlay]);
+
+  // Start continuous color analysis using TensorFlow pose detection
+  const startColorAnalysis = useCallback(() => {
+    setIsAnalyzing(true);
+    
+    // The color analysis happens automatically in the pose detection loop
+    // Just need to set a timeout to stop analyzing after 10 seconds
+    setTimeout(() => {
+      setIsAnalyzing(false);
+    }, 10000);
+  }, []);
 
   // Render connection status indicator
   const renderConnectionStatus = () => {
@@ -501,6 +753,352 @@ const Lobby = () => {
     const redTeam = gameState.players.filter(p => p.team === 'red');
     const blueTeam = gameState.players.filter(p => p.team === 'blue');
     const currentPlayer = gameState.players.find(p => p.id === socket?.id);
+
+    // Color confirmation phase
+    if (gameState.status === 'confirming-colors' && gameState.confirmationPhase) {
+      const currentTarget = gameState.players[gameState.confirmationPhase.currentTargetIndex];
+      const isCurrentPlayerTarget = currentTarget?.id === socket?.id;
+      const hasAlreadyConfirmed = gameState.confirmationPhase.confirmations[`${socket?.id}->${currentTarget?.id}`];
+      
+      const availableColors = [
+        { name: 'Red', value: 'red', bg: 'bg-red-500', border: 'border-red-400' },
+        { name: 'Blue', value: 'blue', bg: 'bg-blue-500', border: 'border-blue-400' },
+        { name: 'Green', value: 'green', bg: 'bg-green-500', border: 'border-green-400' },
+        { name: 'Yellow', value: 'yellow', bg: 'bg-yellow-500', border: 'border-yellow-400' },
+        { name: 'Purple', value: 'purple', bg: 'bg-purple-500', border: 'border-purple-400' },
+        { name: 'Orange', value: 'orange', bg: 'bg-orange-500', border: 'border-orange-400' },
+        { name: 'Pink', value: 'pink', bg: 'bg-pink-500', border: 'border-pink-400' },
+        { name: 'White', value: 'white', bg: 'bg-white', border: 'border-gray-300', text: 'text-black' },
+        { name: 'Black', value: 'black', bg: 'bg-black', border: 'border-gray-600' },
+        { name: 'Gray', value: 'gray', bg: 'bg-gray-500', border: 'border-gray-400' }
+      ];
+
+      return pageContainer(
+        <>
+          <div className="text-center mb-8">
+            <h1 className="text-4xl font-bold mb-2 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-500">
+              🎨 Color Confirmation
+            </h1>
+            <p className="text-purple-300 text-lg">Confirming shirt colors for accurate gameplay</p>
+          </div>
+
+          <div className="w-full max-w-2xl bg-gray-800/90 backdrop-blur-sm rounded-lg border border-purple-800 shadow-xl p-6">
+            {/* Current target display */}
+            <div className="text-center mb-6">
+              <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 mb-4">
+                <span className="text-2xl font-bold text-white">
+                  {currentTarget?.name.charAt(0).toUpperCase()}
+                </span>
+              </div>
+              <h2 className="text-2xl font-bold text-white mb-2">
+                {isCurrentPlayerTarget ? "You are the target!" : `Current Target: ${currentTarget?.name}`}
+              </h2>
+              <p className="text-gray-300">
+                {isCurrentPlayerTarget 
+                  ? "Stand still while others scan your shirt color" 
+                  : "Look at the target's shirt and select the color you see"
+                }
+              </p>
+            </div>
+
+            {/* Progress indicator */}
+            <div className="mb-6">
+              <div className="flex justify-between text-sm text-gray-400 mb-2">
+                <span>Progress</span>
+                <span>{gameState.confirmationPhase.currentTargetIndex + 1} / {gameState.players.length}</span>
+              </div>
+              <div className="w-full bg-gray-700 rounded-full h-2">
+                <div 
+                  className="bg-gradient-to-r from-purple-500 to-pink-500 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${((gameState.confirmationPhase.currentTargetIndex + 1) / gameState.players.length) * 100}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Color detection or waiting state */}
+            {isCurrentPlayerTarget ? (
+              <div className="text-center py-8">
+                <div className="animate-pulse text-6xl mb-4">👕</div>
+                <h3 className="text-xl font-semibold text-white mb-2">Stay Still!</h3>
+                <p className="text-gray-300 mb-4">Other players are scanning your shirt color with their cameras</p>
+                <div className="mt-4 flex items-center justify-center space-x-2">
+                  <div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce"></div>
+                  <div className="w-2 h-2 bg-pink-500 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
+                  <div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+                </div>
+              </div>
+            ) : hasAlreadyConfirmed ? (
+              <div className="text-center py-8">
+                <div className="text-6xl mb-4">✅</div>
+                <h3 className="text-xl font-semibold text-green-400 mb-2">Color Confirmed!</h3>
+                <p className="text-gray-300">
+                  You detected: <span className="font-semibold text-white">{hasAlreadyConfirmed}</span>
+                </p>
+                <p className="text-gray-400 text-sm mt-2">Waiting for other players...</p>
+              </div>
+            ) : !showCamera ? (
+              <div className="text-center py-8">
+                <div className="text-6xl mb-4">📷</div>
+                <h3 className="text-xl font-semibold text-white mb-4">
+                  Scan {currentTarget?.name}'s Shirt Color
+                </h3>
+                <p className="text-gray-300 mb-6">
+                  Use your camera to detect the target's shirt color automatically using AI pose detection
+                </p>
+                {hasCameraPermission === false ? (
+                  <div className="bg-red-900/50 border border-red-500 text-red-100 p-4 rounded-lg mb-4">
+                    <AlertCircle className="mx-auto mb-2" size={24} />
+                    <p>Camera permission required for AI color detection</p>
+                  </div>
+                ) : hasCameraPermission === null ? (
+                  <div className="bg-yellow-900/50 border border-yellow-500 text-yellow-100 p-4 rounded-lg mb-4">
+                    <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-yellow-500 mx-auto mb-2"></div>
+                    <p>Requesting camera permission...</p>
+                  </div>
+                ) : !poseModel ? (
+                  <div className="bg-blue-900/50 border border-blue-500 text-blue-100 p-4 rounded-lg mb-4">
+                    <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-blue-500 mx-auto mb-2"></div>
+                    <p>Loading AI pose detection model...</p>
+                  </div>
+                ) : null}
+                
+                <button
+                  onClick={() => setShowCamera(true)}
+                  disabled={!hasCameraPermission || !poseModel || isSubmittingColor}
+                  className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg hover:from-purple-500 hover:to-pink-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 font-semibold flex items-center justify-center mx-auto"
+                >
+                  <Camera className="mr-2" size={20} />
+                  Start AI Camera Scan
+                </button>
+              </div>
+            ) : (
+              <div>
+                <h3 className="text-lg font-semibold text-white mb-4 text-center">
+                  Point your camera at {currentTarget?.name}'s shirt
+                </h3>
+                
+                {/* Camera view */}
+                <div className="relative mb-6 bg-black rounded-lg overflow-hidden">
+                  {hasCameraPermission ? (
+                    <Webcam
+                      ref={webcamRef}
+                      audio={false}
+                      className="w-full h-64 object-cover"
+                      screenshotFormat="image/jpeg"
+                      videoConstraints={{
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                        facingMode: isMobileDevice() ? { ideal: "environment" } : { ideal: "user" }
+                      }}
+                      onUserMedia={(stream) => {
+                        console.log("Camera access granted successfully");
+                        console.log("Video track settings:", stream.getVideoTracks()[0].getSettings());
+                      }}
+                      onUserMediaError={(error) => {
+                        console.error("Camera access error:", error);
+                        
+                        // Try to recover with fallback constraints
+                        if (webcamRef.current) {
+                          console.log("Attempting camera recovery with fallback constraints...");
+                          
+                          // Force re-render with basic constraints
+                          setTimeout(() => {
+                            setShowCamera(false);
+                            setTimeout(() => {
+                              setShowCamera(true);
+                            }, 500);
+                          }, 1000);
+                        } else {
+                          setHasCameraPermission(false);
+                          setShowCamera(false);
+                          showNotification('Camera access failed. Please check permissions and try again.', 'error');
+                        }
+                      }}
+                    />
+                  ) : (
+                    <div className="w-full h-64 bg-gray-800 flex items-center justify-center">
+                      <div className="text-center">
+                        <Camera className="mx-auto mb-4 text-gray-400" size={48} />
+                        <p className="text-gray-400">Camera permission required for AI color detection</p>
+                        <button
+                          onClick={async () => {
+                            const hasPermission = await requestCameraPermission(showNotification);
+                            setHasCameraPermission(hasPermission);
+                            if (!hasPermission) {
+                              showNotification('Camera permission denied', 'error');
+                            }
+                          }}
+                          className="mt-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-500"
+                        >
+                          Grant Camera Access
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Pose detection overlay */}
+                  <canvas
+                    ref={canvasRef}
+                    className="absolute top-0 left-0 w-full h-64 pointer-events-none"
+                    style={{ mixBlendMode: 'normal' }}
+                  />
+                  
+                  {/* Status overlay */}
+                  <div className="absolute bottom-4 left-4 right-4 bg-black/80 text-white p-3 rounded-lg">
+                    <p className="text-sm text-center">
+                      {!hasCameraPermission 
+                        ? "📷 Camera permission required"
+                        : currentPoses.length === 0 
+                          ? "🔍 Looking for person in frame..." 
+                          : "✅ Person detected! AI analyzing torso area..."
+                      }
+                    </p>
+                  </div>
+
+                  {/* Close button */}
+                  <button
+                    onClick={() => {
+                      setShowCamera(false);
+                      setDetectedColor('');
+                      setColorConfidence(0);
+                      setIsAnalyzing(false);
+                    }}
+                    className="absolute top-2 right-2 bg-black/60 text-white p-2 rounded-full hover:bg-black/80 transition-all"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+
+                {/* Detection results */}
+                {detectedColor && (
+                  <div className="mb-6 p-4 bg-gray-900/50 rounded-lg border">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-gray-300">Detected Color:</span>
+                      <div className="flex items-center">
+                        <div 
+                          className="w-6 h-6 rounded-full border-2 border-white mr-2"
+                          style={{ backgroundColor: detectedColor }}
+                        />
+                        <span className="text-white font-semibold capitalize">{detectedColor}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-300">Confidence:</span>
+                      <span className={`font-semibold ${colorConfidence > 0.5 ? 'text-green-400' : 'text-yellow-400'}`}>
+                        {Math.round(colorConfidence * 100)}%
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Control buttons */}
+                <div className="space-y-3">
+                  <button
+                    onClick={startColorAnalysis}
+                    disabled={isAnalyzing}
+                    className="w-full flex justify-center items-center px-6 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-lg hover:from-blue-500 hover:to-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 font-semibold"
+                  >
+                    {isAnalyzing ? (
+                      <>
+                        <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-white mr-2"></div>
+                        Analyzing... ({Math.max(0, 10 - Math.floor((Date.now() % 10000) / 1000))}s)
+                      </>
+                    ) : (
+                      <>
+                        <Zap className="mr-2" size={20} />
+                        Analyze Color
+                      </>
+                    )}
+                  </button>
+
+                  {detectedColor && colorConfidence > 0.3 && (
+                    <button
+                      onClick={() => handleSubmitColorConfirmation(currentTarget.id, detectedColor)}
+                      disabled={isSubmittingColor}
+                      className="w-full flex justify-center items-center px-6 py-4 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:from-green-500 hover:to-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 font-semibold"
+                    >
+                      {isSubmittingColor ? (
+                        <>
+                          <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-white mr-2"></div>
+                          Confirming...
+                        </>
+                      ) : (
+                        <>
+                          <Zap className="mr-2" size={20} />
+                          Confirm {detectedColor.charAt(0).toUpperCase() + detectedColor.slice(1)}
+                        </>
+                      )}
+                    </button>
+                  )}
+
+                  <button
+                    onClick={() => setShowCamera(false)}
+                    className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-all duration-200"
+                  >
+                    Cancel Scan
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Player confirmation status */}
+            <div className="mt-6 pt-6 border-t border-gray-700">
+              <h4 className="text-sm font-medium text-gray-400 mb-3">Confirmation Status:</h4>
+              <div className="grid grid-cols-2 gap-2">
+                {gameState.players.map((player) => {
+                  const isTarget = player.id === currentTarget?.id;
+                  const hasConfirmed = gameState.confirmationPhase!.confirmations[`${player.id}->${currentTarget?.id}`];
+                  
+                  return (
+                    <div 
+                      key={player.id}
+                      className={`flex items-center justify-between p-2 rounded-lg ${
+                        isTarget 
+                          ? 'bg-purple-900/30 border border-purple-800' 
+                          : hasConfirmed 
+                            ? 'bg-green-900/30 border border-green-800' 
+                            : 'bg-gray-900/30 border border-gray-700'
+                      }`}
+                    >
+                      <span className="text-sm text-white">{player.name}</span>
+                      <span className="text-xs">
+                        {isTarget 
+                          ? '🎯 Target' 
+                          : hasConfirmed 
+                            ? '✅ Done' 
+                            : '⏳ Waiting'
+                        }
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Host controls */}
+            {isHost && (
+              <div className="mt-6 pt-6 border-t border-gray-700 flex justify-between">
+                <button
+                  onClick={handleSkipColorConfirmation}
+                  className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-all duration-200"
+                >
+                  Skip Color Confirmation
+                </button>
+                <button
+                  onClick={() => setShowConfirmation(true)}
+                  className="px-4 py-2 bg-red-700 text-white rounded-lg hover:bg-red-600 transition-all duration-200"
+                >
+                  <LogOut className="mr-2" size={16} />
+                  Leave Game
+                </button>
+              </div>
+            )}
+          </div>
+        </>
+      );
+    }
+    
+    // Regular lobby view when not in color confirmation phase
     
     return pageContainer(
       <>
@@ -511,9 +1109,16 @@ const Lobby = () => {
           <div className={`inline-block px-4 py-1 rounded-full text-sm font-medium ${
             gameState.status === 'waiting' 
               ? 'bg-yellow-900/50 text-yellow-300 border border-yellow-800' 
-              : 'bg-green-900/50 text-green-300 border border-green-800'
+              : gameState.status === 'confirming-colors'
+                ? 'bg-purple-900/50 text-purple-300 border border-purple-800'
+                : 'bg-green-900/50 text-green-300 border border-green-800'
           }`}>
-            {gameState.status === 'waiting' ? '⏳ Waiting for players' : '🎮 Game in progress'}
+            {gameState.status === 'waiting' 
+              ? '⏳ Waiting for players' 
+              : gameState.status === 'confirming-colors' 
+                ? '🎨 Confirming colors'
+                : '🎮 Game in progress'
+            }
           </div>
           
           <p className="text-gray-400 mt-2">
@@ -559,10 +1164,24 @@ const Lobby = () => {
                         }`}
                       >
                         <div className="flex items-center">
-                          <div className="w-8 h-8 rounded-full bg-red-800 flex items-center justify-center mr-3">
+                          <div className="w-8 h-8 rounded-full bg-red-800 flex items-center justify-center mr-3 relative">
                             {player.name.charAt(0).toUpperCase()}
+                            {player.isConfirmed && player.shirtColor && (
+                              <div 
+                                className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white`}
+                                style={{ backgroundColor: player.shirtColor }}
+                                title={`Confirmed shirt color: ${player.shirtColor}`}
+                              />
+                            )}
                           </div>
-                          <span>{player.name}</span>
+                          <div>
+                            <span>{player.name}</span>
+                            {player.isConfirmed && player.shirtColor && (
+                              <div className="text-xs text-gray-400">
+                                Shirt: {player.shirtColor}
+                              </div>
+                            )}
+                          </div>
                           {player.isHost && 
                             <div className="ml-2 flex items-center text-yellow-500">
                               <Crown size={14} className="mr-1" />
@@ -598,10 +1217,24 @@ const Lobby = () => {
                         }`}
                       >
                         <div className="flex items-center">
-                          <div className="w-8 h-8 rounded-full bg-blue-800 flex items-center justify-center mr-3">
+                          <div className="w-8 h-8 rounded-full bg-blue-800 flex items-center justify-center mr-3 relative">
                             {player.name.charAt(0).toUpperCase()}
+                            {player.isConfirmed && player.shirtColor && (
+                              <div 
+                                className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white`}
+                                style={{ backgroundColor: player.shirtColor }}
+                                title={`Confirmed shirt color: ${player.shirtColor}`}
+                              />
+                            )}
                           </div>
-                          <span>{player.name}</span>
+                          <div>
+                            <span>{player.name}</span>
+                            {player.isConfirmed && player.shirtColor && (
+                              <div className="text-xs text-gray-400">
+                                Shirt: {player.shirtColor}
+                              </div>
+                            )}
+                          </div>
                           {player.isHost && 
                             <div className="ml-2 flex items-center text-yellow-500">
                               <Crown size={14} className="mr-1" />
@@ -636,16 +1269,29 @@ const Lobby = () => {
                   </button>
                   
                   {isHost && (
-                    <button
-                      onClick={handleStartGame}
-                      disabled={gameState.players.length < 2 || connectionStatus !== 'connected'}
-                      className="w-full flex justify-center items-center px-4 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-md hover:from-green-500 hover:to-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
-                    >
-                      <Play className="mr-2" /> Start Game
-                      {gameState.players.length < 2 && 
-                        <span className="ml-1 text-xs">(Need at least 2 players)</span>
-                      }
-                    </button>
+                    <>
+                      <button
+                        onClick={handleStartColorConfirmation}
+                        disabled={gameState.players.length < 2 || connectionStatus !== 'connected'}
+                        className="w-full flex justify-center items-center px-4 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-md hover:from-purple-500 hover:to-pink-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+                      >
+                        <Zap className="mr-2" /> Start Color Confirmation
+                        {gameState.players.length < 2 && 
+                          <span className="ml-1 text-xs">(Need at least 2 players)</span>
+                        }
+                      </button>
+                      
+                      <button
+                        onClick={handleStartGame}
+                        disabled={gameState.players.length < 2 || connectionStatus !== 'connected'}
+                        className="w-full flex justify-center items-center px-4 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-md hover:from-green-500 hover:to-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+                      >
+                        <Play className="mr-2" /> Start Game (Skip Color Check)
+                        {gameState.players.length < 2 && 
+                          <span className="ml-1 text-xs">(Need at least 2 players)</span>
+                        }
+                      </button>
+                    </>
                   )}
                 </>
               )}
@@ -689,8 +1335,7 @@ const Lobby = () => {
       {renderError() || (
         <p className="text-cyan-300 animate-pulse">Initializing system...</p>
       )}
-    </div>
-  );
+    </div>  );
 };
 
 export default Lobby;

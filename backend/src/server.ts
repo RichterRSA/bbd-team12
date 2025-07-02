@@ -9,6 +9,8 @@ interface Player {
   isHost: boolean;
   team: 'red' | 'blue';
   health: number;
+  shirtColor?: string; // Add this
+  isConfirmed?: boolean; // Add this
 }
 
 interface GameSettings {
@@ -20,8 +22,13 @@ interface Game {
   id: string;
   name: string;
   players: Player[];
-  status: 'waiting' | 'in-progress' | 'finished';
+  status: 'waiting' | 'confirming-colors' | 'in-progress' | 'finished'; // Update this
   settings: GameSettings;
+  confirmationPhase?: { // Add this
+    currentTargetIndex: number;
+    confirmations: { [playerId: string]: string }; // playerId -> detected color
+    allConfirmed: boolean;
+  };
 }
 
 interface GameCollection {
@@ -319,6 +326,173 @@ io.on('connection', (socket: Socket) => {
     } catch (error) {
       console.error('❌ Error starting game:', error);
       socket.emit('error', 'Failed to start game');
+    }
+  });
+
+  socket.on('startColorConfirmation', (gameId: string) => {
+    try {
+      const game = games[gameId];
+      if (!game) {
+        console.log(`❓ Player ${socket.id} tried to start confirmation in non-existent game ${gameId}`);
+        return;
+      }
+      
+      const player = game.players.find(p => p.id === socket.id);
+      if (!player || !player.isHost) {
+        console.log(`🚫 Non-host player ${socket.id} tried to start color confirmation ${gameId}`);
+        socket.emit('error', 'Only the host can start color confirmation');
+        return;
+      }
+      
+      if (game.players.length < 2) {
+        socket.emit('error', 'Need at least 2 players for color confirmation');
+        return;
+      }
+      
+      console.log(`🎨 Starting color confirmation phase for game ${gameId}`);
+      game.status = 'confirming-colors';
+      game.confirmationPhase = {
+        currentTargetIndex: 0,
+        confirmations: {},
+        allConfirmed: false
+      };
+      
+      // Reset all player confirmations
+      game.players.forEach(p => {
+        p.shirtColor = undefined;
+        p.isConfirmed = false;
+      });
+      
+      io.to(gameId).emit('colorConfirmationStarted', {
+        gameState: game,
+        currentTarget: game.players[0]
+      });
+      logGameState(gameId);
+    } catch (error) {
+      console.error('❌ Error starting color confirmation:', error);
+      socket.emit('error', 'Failed to start color confirmation');
+    }
+  });
+
+  socket.on('submitColorConfirmation', (data: { gameId: string; targetPlayerId: string; detectedColor: string }) => {
+    try {
+      const game = games[data.gameId];
+      if (!game || game.status !== 'confirming-colors' || !game.confirmationPhase) {
+        socket.emit('error', 'Game not in color confirmation phase');
+        return;
+      }
+      
+      const confirmingPlayer = game.players.find(p => p.id === socket.id);
+      const targetPlayer = game.players.find(p => p.id === data.targetPlayerId);
+      
+      if (!confirmingPlayer || !targetPlayer) {
+        socket.emit('error', 'Player not found');
+        return;
+      }
+      
+      if (confirmingPlayer.id === targetPlayer.id) {
+        socket.emit('error', 'Cannot confirm your own shirt color');
+        return;
+      }
+      
+      // Store the confirmation
+      const confirmationKey = `${socket.id}->${data.targetPlayerId}`;
+      game.confirmationPhase.confirmations[confirmationKey] = data.detectedColor;
+      
+      console.log(`🎨 ${confirmingPlayer.name} confirmed ${targetPlayer.name}'s shirt as ${data.detectedColor}`);
+      
+      // Check if all other players have confirmed this target
+      const otherPlayers = game.players.filter(p => p.id !== data.targetPlayerId);
+      const confirmationsForTarget = otherPlayers.filter(p => 
+        game.confirmationPhase!.confirmations[`${p.id}->${data.targetPlayerId}`]
+      );
+      
+      if (confirmationsForTarget.length === otherPlayers.length) {
+        // All players have confirmed this target, determine consensus
+        const colorCounts: { [color: string]: number } = {};
+        otherPlayers.forEach(p => {
+          const color = game.confirmationPhase!.confirmations[`${p.id}->${data.targetPlayerId}`];
+          colorCounts[color] = (colorCounts[color] || 0) + 1;
+        });
+        
+        // Find the most common color
+        const consensusColor = Object.entries(colorCounts)
+          .reduce((a, b) => colorCounts[a[0]] > colorCounts[b[0]] ? a : b)[0];
+        
+        targetPlayer.shirtColor = consensusColor;
+        targetPlayer.isConfirmed = true;
+        
+        console.log(`✅ Consensus reached for ${targetPlayer.name}: ${consensusColor}`);
+        
+        // Move to next player or finish
+        game.confirmationPhase.currentTargetIndex++;
+        
+        if (game.confirmationPhase.currentTargetIndex >= game.players.length) {
+          // All players confirmed
+          game.confirmationPhase.allConfirmed = true;
+          game.status = 'waiting'; // Ready to start actual game
+          console.log(`🎉 All players' shirt colors confirmed for game ${data.gameId}`);
+          
+          io.to(data.gameId).emit('allColorsConfirmed', {
+            gameState: game,
+            playerColors: game.players.map(p => ({ 
+              name: p.name, 
+              color: p.shirtColor 
+            }))
+          });
+        } else {
+          // Move to next target
+          const nextTarget = game.players[game.confirmationPhase.currentTargetIndex];
+          io.to(data.gameId).emit('nextColorTarget', {
+            gameState: game,
+            currentTarget: nextTarget
+          });
+        }
+      } else {
+        // Still waiting for more confirmations
+        io.to(data.gameId).emit('colorConfirmationUpdate', {
+          gameState: game,
+          confirmationsReceived: confirmationsForTarget.length,
+          confirmationsNeeded: otherPlayers.length
+        });
+      }
+      
+      logGameState(data.gameId);
+    } catch (error) {
+      console.error('❌ Error submitting color confirmation:', error);
+      socket.emit('error', 'Failed to submit color confirmation');
+    }
+  });
+
+  socket.on('skipColorConfirmation', (gameId: string) => {
+    try {
+      const game = games[gameId];
+      if (!game || game.status !== 'confirming-colors') {
+        socket.emit('error', 'Game not in color confirmation phase');
+        return;
+      }
+      
+      const player = game.players.find(p => p.id === socket.id);
+      if (!player || !player.isHost) {
+        socket.emit('error', 'Only the host can skip color confirmation');
+        return;
+      }
+      
+      console.log(`⏭️ Host ${player.name} skipped color confirmation for game ${gameId}`);
+      game.status = 'waiting';
+      game.confirmationPhase = undefined;
+      
+      // Clear any partial confirmations
+      game.players.forEach(p => {
+        p.shirtColor = undefined;
+        p.isConfirmed = false;
+      });
+      
+      io.to(gameId).emit('colorConfirmationSkipped', { gameState: game });
+      logGameState(gameId);
+    } catch (error) {
+      console.error('❌ Error skipping color confirmation:', error);
+      socket.emit('error', 'Failed to skip color confirmation');
     }
   });
 
