@@ -398,17 +398,36 @@ export default function TensorFlow() {
   }
 
   return (
-    <div style={{ position: 'relative', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'stretch', padding: '10px' }}>
-      <div style={{ position: 'relative', flex: 1, minHeight: '0' }}>
+    <div style={{ 
+      position: 'fixed', 
+      top: 0, 
+      left: 0, 
+      right: 0, 
+      bottom: 0, 
+      width: '100%', 
+      height: '100%', 
+      overflow: 'hidden',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center'
+    }}>
+      <div style={{ position: 'relative', width: '100%', height: '100%' }}>
         <Webcam
           audio={false}
           ref={webcamRef}
           screenshotFormat="image/jpeg"
-          style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '8px' }}
+          style={{ 
+            width: '100%', 
+            height: '100%', 
+            objectFit: 'cover',
+            position: 'absolute',
+            top: 0,
+            left: 0
+          }}
           videoConstraints={{
             facingMode: "environment",
-            width: 320,
-            height: 480,
+            width: { ideal: 640, max: 1280 },
+            height: { ideal: 480, max: 480 },
             frameRate: { ideal: 30, min: 30 },
           }}
           mirrored={false}
@@ -437,7 +456,7 @@ export default function TensorFlow() {
             📱 QR: {qrCodeText}
           </div>
         )}
-        <div style={{ position: 'absolute', bottom: '10px', left: '10px', background: 'rgba(0,0,0,0.5)', color: 'white', padding: '5px 10px', borderRadius: '15px', fontSize: '12px' }}>
+        <div style={{ position: 'absolute', bottom: '20px', left: '20px', background: 'rgba(0,0,0,0.5)', color: 'white', padding: '5px 10px', borderRadius: '15px', fontSize: '12px' }}>
           {isDetecting ? 'MoveNet Active' : 'Initializing...'}
           {fps > 0 && ` • Camera: ${fps} FPS`}
           {detectionFps > 0 && ` • Detection: ${detectionFps} FPS`}
@@ -446,7 +465,7 @@ export default function TensorFlow() {
         {/* Notifications Panel */}
         <div style={{
           position: 'absolute',
-          right: '10px',
+          right: '20px',
           top: '25%',
           width: '20%',
           maxWidth: '200px',
@@ -466,10 +485,10 @@ export default function TensorFlow() {
         <button
           style={{
             position: 'absolute',
-            bottom: 0,
+            bottom: '20px',
             left: '10%',
             width: '80%',
-            height: '40vh',
+            height: '35%',
             background: 'transparent',
             border: '2px solid black',
             borderRadius: '10px',
