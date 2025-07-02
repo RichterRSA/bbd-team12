@@ -1358,7 +1358,7 @@ export const drawCrosshair = (
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // Get scaling factors with objectFit: 'cover' accounting
+    // Get video and display dimensions
     const videoWidth = video.videoWidth;
     const videoHeight = video.videoHeight;
     const displayWidth = video.clientWidth;
@@ -1381,7 +1381,8 @@ export const drawCrosshair = (
     const centerX = displayWidth / 2;
     const centerY = displayHeight / 2;
 
-    // Scale the radius to match display coordinates
+    // Scale the radius based on camera resolution (480px height) to display coordinates
+    // The crosshairRadius is already calculated based on 480px camera height, so we scale it to display
     const scaledRadius = crosshairRadius * scale;
 
     // Draw outer circle
