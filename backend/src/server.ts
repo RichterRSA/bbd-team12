@@ -500,7 +500,51 @@ io.on('connection', (socket: Socket) => {
     console.log(`🔴 Client disconnected: ${socket.id}`);
     removePlayerFromGames(socket.id);
   });
+  //Functions to handle player damage 
+socket.on('playerDamage', (data: { gameId: string; targetPlayerId: string}) => {
+    try {
+        //Get the game where the damage happened
+        const game = games[data.gameId];
+        //check if the game exists and is in progress
+        if(!game || game.status !== 'in-progress'){
+            console.log (`Damage ignore: Game ${data.gameId} not found/not in-progress`);
+            socket.emit('error', 'Game not found or not in progress');
+            return;
+        }
+        //find player who was hit
+        const targetPlayer = game.players.find(p => p.id === data.targetPlayerId);
+        //player not found = cancel
+        if(!targetPlayer){
+            console.log(`Player ${data.targetPlayerId} not found in game ${data.gameId}`);
+            socket.emit('error', 'Target player not found');
+            return;
+        }
+        //decrease health by 10 each time player is hit
+        targetPlayer.health -= 10;
+        //do not allow health to go below 10
+        if(targetPlayer.health < 0){
+            targetPlayer.health = 0;
+        }
+        //log the hit and new health
+        console.log(`Player ${targetPlayer.name} (${targetPlayer.id}); New health: ${targetPlayer.health}`);
+        //let all players know of the player's new health
+        io.to(data.gameId).emit('playerHealthUpdate', {
+            playerId: targetPlayer.id,
+            updatedHealth: targetPlayer.health
+        });
+        //health below 0 = elimimate player
+        if(targetPlayer.health === 0){
+            console.log(`Player ${targetPlayer.name} has been eliminated`);
+            io.to(data.gameId).emit(`playerEliminated`, {
+                playerId: targetPlayer.id
+            });
+        }
+    } catch (error) { 
+        console.error('Error handling player damage:', error);
+    }
+}); 
 });
+
 
 // Health check endpoint
 app.get('/health', (req, res) => {
