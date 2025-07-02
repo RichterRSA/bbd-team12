@@ -64,6 +64,7 @@ function TensorFlowContent() {
   const [crosshairRadius, setCrosshairRadius] = useState<number>(80);
   const [videoReady, setVideoReady] = useState<boolean>(false);
   const [socketEstablished, setSocketEstablished] = useState<boolean>(false);
+  const [socketAttempted, setSocketAttempted] = useState<boolean>(false);
   const reconnectionAttemptsRef = useRef<number>(0);
   const lastConnectionAttemptRef = useRef<number>(0);
   const CONNECTION_THROTTLE_MS = 5000; // Minimum 5 seconds between connection attempts
@@ -136,6 +137,7 @@ function TensorFlowContent() {
     }
     
     console.log('Creating new Socket.IO connection to:', socketUrl);
+    setSocketAttempted(true); // Mark that we've attempted to connect
     socketRef.current = io(socketUrl, {
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
@@ -153,11 +155,18 @@ function TensorFlowContent() {
     socketRef.current.on('connect', () => {
       console.log('Socket connected successfully with ID:', socketRef.current?.id);
       setSocketEstablished(true);
+      setSocketAttempted(true);
       reconnectionAttempts = 0; // Reset reconnection attempts on successful connect
       
       // Request to join the game with both socket ID and player name for identification
       console.log('Requesting to join/rejoin game:', gameId, 'as player:', playerName);
       socketRef.current?.emit('rejoinGame', gameId, playerName);
+    });
+
+    socketRef.current.on('disconnect', () => {
+      console.log('Socket disconnected');
+      setSocketEstablished(false);
+      // Don't reset socketAttempted - we've attempted and then disconnected
     });
 
     // Handle gameState events
@@ -1068,7 +1077,7 @@ function TensorFlowContent() {
             {detectionFps > 0 && ` • Detection: ${detectionFps} FPS`}
           </div>
           <div>
-            {socketEstablished ? '✅ Server Connected' : '❌ Server Disconnected'}
+            {!socketAttempted ? '⏳ Connecting...' : socketEstablished ? '✅ Server Connected' : '❌ Server Disconnected'}
             {videoReady ? ' • ✅ Camera Ready' : ' • ⏳ Camera Loading...'}
           </div>
         </div>
