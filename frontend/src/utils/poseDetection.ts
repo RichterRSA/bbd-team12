@@ -597,6 +597,17 @@ export function drawDetections(
       // Continue with next pose
     }
   }); 
+  const crosshairSize = 15;
+
+
+  var inCenter = false;
+  detections.forEach(element => {
+    if (isPersonInCrosshair(element, videoWidth, videoHeight, crosshairSize)) {
+      inCenter = true;
+    }
+  });
+
+  drawCrosshair(canvasRef, webcamRef, crosshairSize, inCenter);
 }
 
 export const extractTorsoColor = (
