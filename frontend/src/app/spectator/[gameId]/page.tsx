@@ -79,11 +79,14 @@ export default function SpectatorGameView() {
 
   // Share functionality
   const shareSpectatorLink = async () => {
+    if (typeof window === 'undefined') return;
     const url = window.location.href;
     try {
-      await navigator.clipboard.writeText(url);
-      setShareUrlCopied(true);
-      setTimeout(() => setShareUrlCopied(false), 2000);
+      if (navigator?.clipboard) {
+        await navigator.clipboard.writeText(url);
+        setShareUrlCopied(true);
+        setTimeout(() => setShareUrlCopied(false), 2000);
+      }
     } catch (err) {
       console.error('Failed to copy URL:', err);
     }
@@ -330,6 +333,8 @@ export default function SpectatorGameView() {
 
   // Handle fullscreen
   const toggleFullscreen = () => {
+    if (typeof document === 'undefined') return;
+    
     if (!document.fullscreenElement) {
       document.documentElement.requestFullscreen();
       setIsFullscreen(true);
