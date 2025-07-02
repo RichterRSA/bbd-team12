@@ -211,6 +211,27 @@ export const drawTorsoBox = (
   const scaleX = displayWidth / videoWidth;
   const scaleY = displayHeight / videoHeight;
 
+  // Calculate scaling factors accounting for objectFit: 'cover'
+  const videoAspectRatio = videoWidth / videoHeight;
+  const displayAspectRatio = displayWidth / displayHeight;
+  
+  let actualScaleX: number, actualScaleY: number;
+  let offsetX: number = 0, offsetY: number = 0;
+  
+  if (videoAspectRatio > displayAspectRatio) {
+    // Video is wider than display - video will be scaled by height and cropped horizontally
+    const scale = displayHeight / videoHeight;
+    actualScaleX = scale;
+    actualScaleY = scale;
+    offsetX = (displayWidth - videoWidth * scale) / 2;
+  } else {
+    // Video is taller than display - video will be scaled by width and cropped vertically  
+    const scale = displayWidth / videoWidth;
+    actualScaleX = scale;
+    actualScaleY = scale;
+    offsetY = (displayHeight - videoHeight * scale) / 2;
+  }
+
   // Extract body bounding box
   const boundingBox = extractTorsoBox(pose, confidenceThreshold);
   
@@ -222,11 +243,11 @@ export const drawTorsoBox = (
       const coord1 = boundingBox[index];
       const coord2 = boundingBox[(index+1) % 4];
 
-      const scaledX1 = coord1.x * scaleX;
-      const scaledX2 = coord2.x * scaleX;
+      const scaledX1 = coord1.x * actualScaleX + offsetX;
+      const scaledX2 = coord2.x * actualScaleX + offsetX;
 
-      const scaledY1 = coord1.y * scaleY;
-      const scaledY2 = coord2.y * scaleY;
+      const scaledY1 = coord1.y * actualScaleY + offsetY;
+      const scaledY2 = coord2.y * actualScaleY + offsetY;
       
       ctx.beginPath();
       ctx.moveTo(scaledX1, scaledY1);
@@ -281,16 +302,16 @@ export const drawTorsoBox = (
   }
 
   // Validate scaling factors are finite
-  if (!isFinite(scaleX) || !isFinite(scaleY) || scaleX <= 0 || scaleY <= 0) {
-    console.error("Invalid scaling factors:", { scaleX, scaleY, displayWidth, displayHeight, videoWidth, videoHeight });
+  if (!isFinite(actualScaleX) || !isFinite(actualScaleY) || actualScaleX <= 0 || actualScaleY <= 0) {
+    console.error("Invalid scaling factors:", { actualScaleX, actualScaleY, displayWidth, displayHeight, videoWidth, videoHeight });
     return null;
   }
 
-  const scaledX1 = minX * scaleX;
-  const scaledX2 = maxX * scaleX;
+  const scaledX1 = minX * actualScaleX + offsetX;
+  const scaledX2 = maxX * actualScaleX + offsetX;
 
-  const scaledY1 = minY * scaleY;
-  const scaledY2 = maxY * scaleY;
+  const scaledY1 = minY * actualScaleY + offsetY;
+  const scaledY2 = maxY * actualScaleY + offsetY;
   
   let w = scaledX2-scaledX1;
   let h = scaledY2-scaledY1;
@@ -581,7 +602,8 @@ export function drawDetections(
   detections: poseDetection.Pose[], 
   canvasRef: React.RefObject<HTMLCanvasElement | null>, 
   webcamRef: React.RefObject<Webcam | null>,
-  highFpsMode: boolean = true
+  highFpsMode: boolean = true,
+  crosshairRadius: number = 80
 ) {
   // Validate inputs
   if (!detections || !Array.isArray(detections)) {
@@ -622,9 +644,27 @@ export function drawDetections(
   canvas.width = displayWidth;
   canvas.height = displayHeight;
 
-  // Calculate scaling factors
-  const scaleX = displayWidth / videoWidth;
-  const scaleY = displayHeight / videoHeight;
+  // Calculate scaling factors accounting for objectFit: 'cover'
+  // With 'cover', the video is scaled to fill the container while maintaining aspect ratio
+  const videoAspectRatio = videoWidth / videoHeight;
+  const displayAspectRatio = displayWidth / displayHeight;
+  
+  let scaleX: number, scaleY: number;
+  let offsetX: number = 0, offsetY: number = 0;
+  
+  if (videoAspectRatio > displayAspectRatio) {
+    // Video is wider than display - video will be scaled by height and cropped horizontally
+    const scale = displayHeight / videoHeight;
+    scaleX = scale;
+    scaleY = scale;
+    offsetX = (displayWidth - videoWidth * scale) / 2;
+  } else {
+    // Video is taller than display - video will be scaled by width and cropped vertically  
+    const scale = displayWidth / videoWidth;
+    scaleX = scale;
+    scaleY = scale;
+    offsetY = (displayHeight - videoHeight * scale) / 2;
+  }
 
   // Validate scaling factors
   if (!isFinite(scaleX) || !isFinite(scaleY) || scaleX <= 0 || scaleY <= 0) {
@@ -636,7 +676,7 @@ export function drawDetections(
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   
   // Use a much lower confidence threshold in high FPS mode (60fps)
-  const confidenceThreshold = highFpsMode ? 0.1 : 0.5;
+  const confidenceThreshold = highFpsMode ? 0.15 : 0.2;
   
   // Draw all detected poses
   detections.forEach((pose, index) => {
@@ -651,35 +691,35 @@ export function drawDetections(
     ctx.strokeStyle = "rgba(0, 128, 255, 0.9)"; // Semi-transparent blue
     ctx.lineWidth = 3;     
 
-    // Draw keypoints - optimized for high framerates
-    keypoints.forEach(keypoint => {
-      if (keypoint.score && keypoint.score > confidenceThreshold) {
-        // Validate keypoint coordinates
-        if (!isFinite(keypoint.x) || !isFinite(keypoint.y)) {
-          console.warn("Non-finite keypoint coordinates:", keypoint);
-          return;
-        }
-
-        const x = keypoint.x;
-        const y = keypoint.y;
-
-        // Scale the coordinates to match the displayed video size
-        const scaledX = x * scaleX;
-        const scaledY = y * scaleY;
-
-        // Validate scaled coordinates
-        if (!isFinite(scaledX) || !isFinite(scaledY)) {
-          console.warn("Non-finite scaled coordinates:", { scaledX, scaledY, x, y, scaleX, scaleY });
-          return;
-        }
-
-        // Draw filled circle for each keypoint
-        ctx.fillStyle = "rgba(255, 0, 0, 0.9)"; // Semi-transparent red
-        ctx.beginPath();
-        ctx.arc(scaledX, scaledY, 4, 0, 2 * Math.PI);
-        ctx.fill();
+  // Draw keypoints - optimized for high framerates
+  keypoints.forEach(keypoint => {
+    if (keypoint.score && keypoint.score > confidenceThreshold) {
+      // Validate keypoint coordinates
+      if (!isFinite(keypoint.x) || !isFinite(keypoint.y)) {
+        console.warn("Non-finite keypoint coordinates:", keypoint);
+        return;
       }
-    });
+
+      const x = keypoint.x;
+      const y = keypoint.y;
+
+      // Scale the coordinates to match the displayed video size with objectFit: 'cover' accounting
+      const scaledX = x * scaleX + offsetX;
+      const scaledY = y * scaleY + offsetY;
+
+      // Validate scaled coordinates
+      if (!isFinite(scaledX) || !isFinite(scaledY)) {
+        console.warn("Non-finite scaled coordinates:", { scaledX, scaledY, x, y, scaleX, scaleY });
+        return;
+      }
+
+      // Draw filled circle for each keypoint
+      ctx.fillStyle = "rgba(255, 0, 0, 0.9)"; // Semi-transparent red
+      ctx.beginPath();
+      ctx.arc(scaledX, scaledY, 4, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+  });
 
     // Draw the torso box with error handling
     try {
@@ -693,17 +733,15 @@ export function drawDetections(
       // Continue with next pose
     }
   }); 
-  const crosshairSize = 15;
-
 
   var inCenter = false;
   detections.forEach(element => {
-    if (isPersonInCrosshair(element, videoWidth, videoHeight, crosshairSize)) {
+    if (isPersonInCrosshair(element, videoWidth, videoHeight, crosshairRadius)) {
       inCenter = true;
     }
   });
 
-  drawCrosshair(canvasRef, webcamRef, crosshairSize, inCenter);
+  drawCrosshair(canvasRef, webcamRef, crosshairRadius, inCenter);
 }
 
 // Helper function to analyze image data for color detection
@@ -1049,7 +1087,72 @@ export const extractTorsoColor = (
   return analyzeImageData(data);
 };
 
-// Function to check if person is inside the crosshair circle
+// Helper function to extract torso rectangle bounds
+const extractTorsoRectangle = (
+  pose: poseDetection.Pose,
+  confidenceThreshold: number = 0.3
+): { minX: number; maxX: number; minY: number; maxY: number } | null => {
+  // Get the torso box coordinates
+  const boundingBox = extractTorsoBox(pose, confidenceThreshold);
+  
+  if (!boundingBox) {
+    return null;
+  }
+
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+
+  // Extract bounds from the torso box points
+  boundingBox.forEach(point => {
+    if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') {
+      return;
+    }
+    
+    if (!isFinite(point.x) || !isFinite(point.y)) {
+      return;
+    }
+    
+    if (point.x < minX) minX = point.x;
+    if (point.x > maxX) maxX = point.x;
+    if (point.y < minY) minY = point.y;
+    if (point.y > maxY) maxY = point.y;
+  });
+
+  if (minX === Infinity || minY === Infinity || 
+      maxX === -Infinity || maxY === -Infinity) {
+    return null;
+  }
+
+  return { minX, maxX, minY, maxY };
+};
+
+// Helper function to check if a rectangle intersects with a circle
+const rectangleIntersectsCircle = (
+  rectMinX: number,
+  rectMinY: number, 
+  rectMaxX: number,
+  rectMaxY: number,
+  circleX: number,
+  circleY: number,
+  radius: number
+): boolean => {
+  // Find the closest point on the rectangle to the circle center
+  const closestX = Math.max(rectMinX, Math.min(circleX, rectMaxX));
+  const closestY = Math.max(rectMinY, Math.min(circleY, rectMaxY));
+  
+  // Calculate distance from circle center to this closest point
+  const distance = Math.sqrt(
+    Math.pow(circleX - closestX, 2) + 
+    Math.pow(circleY - closestY, 2)
+  );
+  
+  // Rectangle intersects circle if distance is less than or equal to radius
+  return distance <= radius;
+};
+
+// Function to check if person is inside the crosshair circle using torso box
 export const isPersonInCrosshair = (
     pose: poseDetection.Pose,
     videoWidth: number,
@@ -1061,33 +1164,27 @@ export const isPersonInCrosshair = (
         return false;
     }
 
-    // Get key body points for center calculation
-    const coreKeypoints = pose.keypoints.filter(keypoint => 
-        keypoint.name && 
-        ['nose', 'left_shoulder', 'right_shoulder', 'left_hip', 'right_hip'].includes(keypoint.name) &&
-        keypoint.score && 
-        keypoint.score > confidenceThreshold
-    );
-
-    if (coreKeypoints.length < 3) {
+    // Extract the torso rectangle using the same logic as the drawing function
+    const torsoRect = extractTorsoRectangle(pose, confidenceThreshold);
+    
+    if (!torsoRect) {
         return false;
     }
 
-    // Calculate the center of the person
-    const avgX = coreKeypoints.reduce((sum, kp) => sum + kp.x, 0) / coreKeypoints.length;
-    const avgY = coreKeypoints.reduce((sum, kp) => sum + kp.y, 0) / coreKeypoints.length;
-
-    // Calculate frame center
+    // Calculate frame center (crosshair center)
     const frameCenterX = videoWidth / 2;
     const frameCenterY = videoHeight / 2;
 
-    // Calculate distance from person center to frame center
-    const distance = Math.sqrt(
-        Math.pow(avgX - frameCenterX, 2) + Math.pow(avgY - frameCenterY, 2)
+    // Check if the torso rectangle intersects with the crosshair circle
+    return rectangleIntersectsCircle(
+        torsoRect.minX,
+        torsoRect.minY,
+        torsoRect.maxX,
+        torsoRect.maxY,
+        frameCenterX,
+        frameCenterY,
+        crosshairRadius
     );
-
-    // Check if person is within the crosshair circle
-    return distance <= crosshairRadius;
 };
 
 // Function to trigger phone vibration
@@ -1259,20 +1356,31 @@ export const drawCrosshair = (
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // Get scaling factors
+    // Get scaling factors with objectFit: 'cover' accounting
     const videoWidth = video.videoWidth;
     const videoHeight = video.videoHeight;
     const displayWidth = video.clientWidth;
     const displayHeight = video.clientHeight;
-    const scaleX = displayWidth / videoWidth;
-    const scaleY = displayHeight / videoHeight;
+    
+    // Calculate scaling factors accounting for objectFit: 'cover'
+    const videoAspectRatio = videoWidth / videoHeight;
+    const displayAspectRatio = displayWidth / displayHeight;
+    
+    let scale: number;
+    if (videoAspectRatio > displayAspectRatio) {
+        // Video is wider than display - video will be scaled by height
+        scale = displayHeight / videoHeight;
+    } else {
+        // Video is taller than display - video will be scaled by width
+        scale = displayWidth / videoWidth;
+    }
 
     // Calculate center of the display
     const centerX = displayWidth / 2;
     const centerY = displayHeight / 2;
 
     // Scale the radius to match display coordinates
-    const scaledRadius = crosshairRadius * Math.min(scaleX, scaleY);
+    const scaledRadius = crosshairRadius * scale;
 
     // Draw outer circle
     ctx.strokeStyle = isPersonInside ? "rgba(0, 255, 0, 0.8)" : "rgba(255, 255, 255, 0.8)";

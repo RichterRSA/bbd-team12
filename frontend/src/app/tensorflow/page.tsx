@@ -136,7 +136,7 @@ export default function TensorFlow() {
             
             // Draw the latest pose data at every frame for smooth animation
             if (currentPosesRef.current.length > 0) {
-                drawDetections(currentPosesRef.current, canvasRef, webcamRef, true);
+                drawDetections(currentPosesRef.current, canvasRef, webcamRef, true, crosshairRadius);
             }
             
             renderFrameId = requestAnimationFrame(renderFrame);
