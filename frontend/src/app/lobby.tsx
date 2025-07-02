@@ -1173,11 +1173,11 @@ const Lobby = () => {
                     <Webcam
                       ref={webcamRef}
                       audio={false}
-                      className="w-full h-64 object-cover"
+                      className="w-full h-96 object-cover"
                       screenshotFormat="image/jpeg"
                       videoConstraints={{
-                        width: { ideal: 640 },
-                        height: { ideal: 480 },
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 },
                         facingMode: isMobileDevice() ? { ideal: "environment" } : { ideal: "user" }
                       }}
                       onUserMedia={(stream) => {
@@ -1249,7 +1249,7 @@ const Lobby = () => {
                   {/* Pose detection overlay */}
                   <canvas
                     ref={canvasRef}
-                    className="absolute top-0 left-0 w-full h-64 pointer-events-none"
+                    className="absolute top-0 left-0 w-full h-96 pointer-events-none"
                     style={{ mixBlendMode: 'normal' }}
                   />
                   
@@ -1479,242 +1479,159 @@ const Lobby = () => {
       );
     }
     
-    // Inline Game View - when game is in progress, show the game interface instead of lobby
+    // Inline Game View - when game is in progress, show fullscreen camera
     if (gameState.status === 'in-progress') {
       const currentPlayer = gameState.players.find(p => p.id === socket?.id);
       
-      return pageContainer(
-        <>
-          <div className="text-center mb-6">
-            <h1 className="text-4xl font-bold mb-1 text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-blue-400">
-              🎯 {gameState.name}
-            </h1>
-            <div className="inline-block px-4 py-1 rounded-full text-sm font-medium bg-green-900/50 text-green-300 border border-green-800">
-              🎮 Game in Progress
-            </div>
-            
-            <p className="text-gray-400 mt-2">
-              Player: <span className="text-white font-semibold">{currentPlayer?.name || playerName}</span> • 
-              Team: <span className={`font-semibold ${currentPlayer?.team === 'red' ? 'text-red-400' : 'text-blue-400'}`}>
-                {currentPlayer?.team?.toUpperCase() || 'Unknown'}
-              </span>
-            </p>
-          </div>
-
-          <div className="w-full max-w-4xl bg-gray-800/90 backdrop-blur-sm rounded-lg border border-green-800 shadow-xl overflow-hidden">
-            {/* Game Status Header */}
-            <div className="bg-gray-900/80 px-6 py-4 border-b border-gray-700">
-              <div className="flex justify-between items-center">
-                <div className="flex items-center space-x-4">
-                  <div className="text-green-400 font-semibold">🎯 Active Game</div>
-                  <div className="text-gray-300">|</div>
-                  <div className="text-gray-300">
-                    Health: <span className={`font-bold ${
-                      (currentPlayer?.health || 0) > 50 ? 'text-green-400' : 
-                      (currentPlayer?.health || 0) > 20 ? 'text-yellow-400' : 'text-red-400'
-                    }`}>{currentPlayer?.health || 0}</span>
-                  </div>
-                  <div className="text-gray-300">
-                    Score: <span className="font-bold text-blue-400">{currentPlayer?.points || 0}</span>
-                  </div>
-                </div>
-                <div className="text-sm text-gray-400">
-                  Game ID: {gameState.id}
-                </div>
-              </div>
-            </div>
-
-            {/* Camera View for Pose Detection */}
-            <div className="p-6">
-              <div className="bg-black rounded-lg overflow-hidden border-4 border-green-500 mb-4">
-                {hasCameraPermission ? (
-                  <div className="relative">
-                    <Webcam
-                      ref={webcamRef}
-                      audio={false}
-                      className="w-full h-96 object-cover"
-                      screenshotFormat="image/jpeg"
-                      videoConstraints={{
-                        width: { ideal: 640 },
-                        height: { ideal: 480 },
-                        facingMode: isMobileDevice() ? { ideal: "environment" } : { ideal: "user" }
-                      }}
-                      onUserMedia={(stream) => {
-                        console.log("Game camera access granted successfully");
-                        console.log("Video track settings:", stream.getVideoTracks()[0].getSettings());
-                      }}
-                      onUserMediaError={(error) => {
-                        console.error("Game camera access error:", error);
-                        setHasCameraPermission(false);
-                        
-                        let errorMessage = 'Camera access failed during game.';
-                        if (error instanceof DOMException) {
-                          switch (error.name) {
-                            case 'NotAllowedError':
-                            case 'PermissionDeniedError':
-                              errorMessage = 'Camera permission lost. Please allow camera access to continue playing.';
-                              break;
-                            case 'NotFoundError':
-                            case 'DevicesNotFoundError':
-                              errorMessage = 'No camera found. Please ensure a camera is connected.';
-                              break;
-                            case 'NotReadableError':
-                            case 'TrackStartError':
-                              errorMessage = 'Camera is being used by another app. Please close other camera apps.';
-                              break;
-                            default:
-                              errorMessage = 'Camera error during game. Please refresh and try again.';
-                              break;
-                          }
-                        }
-                        
-                        showNotification(errorMessage, 'error');
-                      }}
-                    />
-                    
-                    {/* Game UI Overlay */}
-                    <div className="absolute inset-0 pointer-events-none">
-                      {/* Crosshair and targeting */}
-                      <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
-                        <div className="w-32 h-32 border-4 border-green-400 bg-green-400/10 rounded-full relative">
-                          {/* Crosshair */}
-                          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
-                            <div className="w-8 h-1 bg-green-400"></div>
-                            <div className="w-1 h-8 bg-green-400 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"></div>
-                          </div>
-                          
-                          {/* Target label */}
-                          <div className="absolute -bottom-10 left-1/2 transform -translate-x-1/2 text-center">
-                            <div className="bg-green-400 text-black px-3 py-1 rounded-full text-sm font-bold">
-                              🎯 AIM & SHOOT
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      {/* Person detection indicator */}
-                      {currentPoses.length > 0 && (
-                        <div className="absolute top-4 left-4 bg-green-500 text-white px-3 py-1 rounded-full text-sm font-bold animate-pulse">
-                          ✅ Target Detected
-                        </div>
-                      )}
-                      
-                      {/* Game status indicators */}
-                      <div className="absolute top-4 right-4 space-y-2">
-                        <div className="bg-black/80 text-white px-3 py-1 rounded-full text-sm">
-                          {currentPoses.length > 0 ? '🎯 Ready to Shoot' : '🔍 Looking for Targets'}
-                        </div>
-                        {currentPlayer?.weapon && (
-                          <div className="bg-blue-900/80 text-blue-200 px-3 py-1 rounded-full text-sm">
-                            🔫 {currentPlayer.weapon.type}
-                          </div>
-                        )}
-                      </div>
+      return (
+        <div className="fixed inset-0 bg-black">
+          {hasCameraPermission ? (
+            <div className="relative w-full h-full">
+              <Webcam
+                ref={webcamRef}
+                audio={false}
+                className="w-full h-full object-cover"
+                screenshotFormat="image/jpeg"
+                videoConstraints={{
+                  width: { ideal: 1280 },
+                  height: { ideal: 720 },
+                  facingMode: isMobileDevice() ? { ideal: "environment" } : { ideal: "user" }
+                }}
+                onUserMedia={(stream) => {
+                  console.log("Game camera access granted successfully");
+                  console.log("Video track settings:", stream.getVideoTracks()[0].getSettings());
+                }}
+                onUserMediaError={(error) => {
+                  console.error("Game camera access error:", error);
+                  setHasCameraPermission(false);
+                  
+                  let errorMessage = 'Camera access failed during game.';
+                  if (error instanceof DOMException) {
+                    switch (error.name) {
+                      case 'NotAllowedError':
+                      case 'PermissionDeniedError':
+                        errorMessage = 'Camera permission lost. Please allow camera access to continue playing.';
+                        break;
+                      case 'NotFoundError':
+                      case 'DevicesNotFoundError':
+                        errorMessage = 'No camera found. Please ensure a camera is connected.';
+                        break;
+                      case 'NotReadableError':
+                      case 'TrackStartError':
+                        errorMessage = 'Camera is being used by another app. Please close other camera apps.';
+                        break;
+                      default:
+                        errorMessage = 'Camera error during game. Please refresh and try again.';
+                        break;
+                    }
+                  }
+                  
+                  showNotification(errorMessage, 'error');
+                }}
+              />
+              
+              {/* Game UI Overlay */}
+              <div className="absolute inset-0 pointer-events-none">
+                {/* Crosshair and targeting */}
+                <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
+                  <div className="w-40 h-40 border-4 border-green-400 bg-green-400/10 rounded-full relative">
+                    {/* Crosshair */}
+                    <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
+                      <div className="w-12 h-1 bg-green-400"></div>
+                      <div className="w-1 h-12 bg-green-400 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"></div>
                     </div>
                     
-                    {/* Pose detection overlay */}
-                    <canvas
-                      ref={canvasRef}
-                      className="absolute top-0 left-0 w-full h-96 pointer-events-none opacity-60"
-                      style={{ mixBlendMode: 'screen' }}
-                    />
-                  </div>
-                ) : (
-                  <div className="w-full h-96 bg-gray-800 flex items-center justify-center">
-                    <div className="text-center">
-                      <Camera className="mx-auto mb-4 text-gray-400" size={64} />
-                      <h3 className="text-white text-xl mb-2">Camera Required</h3>
-                      <p className="text-gray-400 mb-4">Camera access is needed to play the game</p>
-                      <button
-                        onClick={async () => {
-                          const hasPermission = await requestCameraPermission(showNotification);
-                          setHasCameraPermission(hasPermission);
-                          if (hasPermission) {
-                            showNotification('Camera access granted! Game ready.', 'success');
-                          } else {
-                            showNotification('Camera access denied. Cannot continue game.', 'error');
-                          }
-                        }}
-                        className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-500 transition-all duration-200 font-semibold"
-                      >
-                        📷 Enable Camera
-                      </button>
+                    {/* Target label */}
+                    <div className="absolute -bottom-12 left-1/2 transform -translate-x-1/2 text-center">
+                      <div className="bg-green-400 text-black px-4 py-2 rounded-full text-lg font-bold">
+                        🎯 AIM & SHOOT
+                      </div>
                     </div>
                   </div>
-                )}
-              </div>
-
-              {/* Game Instructions */}
-              <div className="bg-green-900/30 border border-green-600 rounded-lg p-4 mb-4">
-                <h4 className="font-semibold text-green-200 mb-2">🎮 How to Play:</h4>
-                <ul className="text-sm text-green-100 space-y-1">
-                  <li>• <strong>Aim:</strong> Point your camera at opponents wearing different colored shirts</li>
-                  <li>• <strong>Shoot:</strong> When a person appears in the crosshair, the system will auto-shoot</li>
-                  <li>• <strong>Avoid:</strong> Don't let opponents point their cameras at you!</li>
-                  <li>• <strong>Score:</strong> Hit opponents to gain points and reduce their health</li>
-                </ul>
-              </div>
-
-              {/* Player Stats */}
-              <div className="grid grid-cols-2 gap-4 mb-4">
-                <div className="bg-gray-700/50 rounded-lg p-4">
-                  <h5 className="text-gray-300 text-sm mb-2">Your Stats</h5>
-                  <div className="space-y-1 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-gray-400">Health:</span>
-                      <span className={`font-bold ${
+                </div>
+                
+                {/* Top HUD */}
+                <div className="absolute top-4 left-4 right-4 flex justify-between items-start">
+                  <div className="bg-black/80 text-white px-4 py-2 rounded-lg">
+                    <div className="text-lg font-bold">{currentPlayer?.name || playerName}</div>
+                    <div className={`text-sm ${currentPlayer?.team === 'red' ? 'text-red-400' : 'text-blue-400'}`}>
+                      {currentPlayer?.team?.toUpperCase() || 'Unknown'} TEAM
+                    </div>
+                  </div>
+                  
+                  <div className="bg-black/80 text-white px-4 py-2 rounded-lg text-right">
+                    <div className="text-lg font-bold">
+                      Health: <span className={`${
                         (currentPlayer?.health || 0) > 50 ? 'text-green-400' : 
                         (currentPlayer?.health || 0) > 20 ? 'text-yellow-400' : 'text-red-400'
-                      }`}>{currentPlayer?.health || 0}/100</span>
+                      }`}>{currentPlayer?.health || 0}</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-400">Score:</span>
-                      <span className="text-blue-400 font-bold">{currentPlayer?.points || 0}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-400">Lives:</span>
-                      <span className="text-purple-400 font-bold">{currentPlayer?.lives || 0}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-400">Status:</span>
-                      <span className={`font-bold capitalize ${
-                        currentPlayer?.status === 'alive' ? 'text-green-400' : 'text-red-400'
-                      }`}>{currentPlayer?.status || 'Unknown'}</span>
+                    <div className="text-sm text-blue-400">
+                      Score: {currentPlayer?.points || 0}
                     </div>
                   </div>
                 </div>
-
-                <div className="bg-gray-700/50 rounded-lg p-4">
-                  <h5 className="text-gray-300 text-sm mb-2">Current Weapon</h5>
-                  {currentPlayer?.weapon ? (
-                    <div className="space-y-1 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-gray-400">Type:</span>
-                        <span className="text-white font-bold">{currentPlayer.weapon.type}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-400">Damage:</span>
-                        <span className="text-red-400 font-bold">{currentPlayer.weapon.damage}</span>
-                      </div>
+                
+                {/* Person detection indicator */}
+                {currentPoses.length > 0 && (
+                  <div className="absolute top-20 left-1/2 transform -translate-x-1/2 bg-green-500 text-white px-6 py-2 rounded-full text-lg font-bold animate-pulse">
+                    ✅ TARGET DETECTED
+                  </div>
+                )}
+                
+                {/* Bottom HUD */}
+                <div className="absolute bottom-4 left-4 right-4 flex justify-between items-end">
+                  <div className="bg-black/80 text-white px-4 py-2 rounded-lg">
+                    <div className="text-sm text-gray-300">Status</div>
+                    <div className="text-lg font-bold">
+                      {currentPoses.length > 0 ? '🎯 READY TO SHOOT' : '🔍 SCANNING...'}
                     </div>
-                  ) : (
-                    <div className="text-gray-400 text-sm">No weapon equipped</div>
-                  )}
+                  </div>
+                  
+                  <button
+                    onClick={() => setShowConfirmation(true)}
+                    className="bg-red-700 text-white px-6 py-3 rounded-lg hover:bg-red-600 transition-all duration-200 font-bold pointer-events-auto"
+                  >
+                    🚪 EXIT
+                  </button>
                 </div>
               </div>
-
-              {/* Exit Game Button */}
-              <div className="text-center">
+              
+              {/* Pose detection overlay */}
+              <canvas
+                ref={canvasRef}
+                className="absolute top-0 left-0 w-full h-full pointer-events-none opacity-60"
+                style={{ mixBlendMode: 'screen' }}
+              />
+            </div>
+          ) : (
+            <div className="w-full h-full bg-gray-900 flex items-center justify-center">
+              <div className="text-center text-white">
+                <Camera className="mx-auto mb-6 text-gray-400" size={96} />
+                <h2 className="text-3xl font-bold mb-4">Camera Required</h2>
+                <p className="text-gray-400 mb-8 text-xl">Camera access is needed to play the game</p>
                 <button
-                  onClick={() => setShowConfirmation(true)}
-                  className="px-6 py-3 bg-red-700 text-white rounded-lg hover:bg-red-600 transition-all duration-200 font-semibold"
+                  onClick={async () => {
+                    const hasPermission = await requestCameraPermission(showNotification);
+                    setHasCameraPermission(hasPermission);
+                    if (hasPermission) {
+                      showNotification('Camera access granted! Game ready.', 'success');
+                    } else {
+                      showNotification('Camera access denied. Cannot continue game.', 'error');
+                    }
+                  }}
+                  className="px-8 py-4 bg-green-600 text-white rounded-lg hover:bg-green-500 transition-all duration-200 font-bold text-xl"
                 >
-                  🚪 Leave Game
+                  � Enable Camera
                 </button>
               </div>
             </div>
-          </div>
-        </>
+          )}
+          
+          {/* Notifications overlay */}
+          {renderNotification()}
+          {renderConfirmDialog()}
+        </div>
       );
     }
     
