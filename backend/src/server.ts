@@ -769,7 +769,7 @@ io.on('connection', (socket: Socket) => {
     }
   });
   //Functions to handle player damage 
-socket.on('playerDamage', (data: { gameId: string; targetPlayerId: string}) => {
+socket.on('playerDamage', (data: { gameId: string; targetPlayerId: string; attackerId?: string}) => {
     try {
         //Get the game where the damage happened
         const game = games[data.gameId];
@@ -787,31 +787,90 @@ socket.on('playerDamage', (data: { gameId: string; targetPlayerId: string}) => {
             socket.emit('error', 'Target player not found');
             return;
         }
+
+        // Find the attacker (the one who sent this damage event)
+        const attackerId = data.attackerId || socket.id;
+        const attacker = game.players.find(p => p.id === attackerId);
+        
+        if (!attacker) {
+            console.log(`Attacker ${attackerId} not found in game ${data.gameId}`);
+            socket.emit('error', 'Attacker not found');
+            return;
+        }
+
+        // Prevent self-damage and friendly fire
+        if (attackerId === data.targetPlayerId) {
+            console.log('Self-damage prevented');
+            return;
+        }
+
+        if (attacker.team === targetPlayer.team) {
+            console.log('Friendly fire prevented');
+            socket.emit('error', 'Friendly fire is not allowed');
+            return;
+        }
+
         //decrease health by 10 each time player is hit
-        targetPlayer.health -= 10;
-        //do not allow health to go below 10
+        const damage = 10;
+        targetPlayer.health -= damage;
+        //do not allow health to go below 0
         if(targetPlayer.health < 0){
             targetPlayer.health = 0;
         }
         //log the hit and new health
-        console.log(`Player ${targetPlayer.name} (${targetPlayer.id}); New health: ${targetPlayer.health}`);
+        console.log(`Player ${targetPlayer.name} (${targetPlayer.id}) hit by ${attacker.name}; New health: ${targetPlayer.health}`);
+        
+        // Emit damage event to the target player
+        io.to(data.targetPlayerId).emit('playerDamaged', {
+            targetPlayerId: data.targetPlayerId,
+            damage: damage,
+            attackerName: attacker.name
+        });
+
+        // Award points to the attacker
+        attacker.points = (attacker.points || 0) + 10;
+        
         //let all players know of the player's new health
         io.to(data.gameId).emit('playerHealthUpdate', {
+            gameId: data.gameId,
             playerId: targetPlayer.id,
-            updatedHealth: targetPlayer.health
+            health: targetPlayer.health,
+            isAlive: targetPlayer.health > 0
         });
-        //health below 0 = elimimate player
+
+        // Emit score update to attacker
+        io.to(attackerId).emit('playerScoreUpdate', {
+            playerId: attackerId,
+            points: attacker.points
+        });
+
+        //health below 0 = eliminate player
         if(targetPlayer.health === 0){
+            targetPlayer.status = 'dead';
             console.log(`Player ${targetPlayer.name} has been eliminated`);
-            io.to(data.gameId).emit(`playerEliminated`, {
-                playerId: targetPlayer.id
+            io.to(data.gameId).emit('playerEliminated', {
+                playerId: targetPlayer.id,
+                playerName: targetPlayer.name,
+                eliminatedBy: attacker.name
+            });
+            
+            // Award extra points for elimination
+            attacker.points += 25;
+            io.to(attackerId).emit('playerScoreUpdate', {
+                playerId: attackerId,
+                points: attacker.points
             });
         }
+
+        // Update game state for all players
+        io.to(data.gameId).emit('gameStateUpdate', game);
+        
     } catch (error) { 
         console.error('Error handling player damage:', error);
     }
-}); 
 });
+
+}); // End of io.on('connection')
 
 
 // Health check endpoint

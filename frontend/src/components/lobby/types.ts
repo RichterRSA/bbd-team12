@@ -6,15 +6,15 @@ export interface Player {
   health: number;
   shirtColor?: string;
   isConfirmed?: boolean;
-  points?: number;
-  lives?: number;
-  status?: 'alive' | 'dead';
-  weapon?: {
+  points: number;
+  lives: number;
+  status: 'alive' | 'dead';
+  weapon: {
     type: string;
     damage: number;
     cost?: number;
-  };
-  powerUps?: Array<{
+  } | null;
+  powerUps: Array<{
     type: string;
     active: boolean;
   }>;

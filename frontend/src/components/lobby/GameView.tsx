@@ -102,11 +102,12 @@ export const GameView: React.FC<GameViewProps> = ({
       if (closestMatch.player.status === 'dead') {
         showNotification('💀 Target is already eliminated!', 'info');
         return;
-      }          // Emit the damage event to the server
+      }      // Emit the damage event to the server
       if (socket && gameState.id && closestMatch.player.id && currentPlayer) {
         socket.emit('playerDamage', {
           gameId: gameState.id,
-          targetPlayerId: closestMatch.player.id
+          targetPlayerId: closestMatch.player.id,
+          attackerId: currentPlayer.id
         });
         showNotification(`🎯 Shot fired at ${closestMatch.player.name}!`, 'success');
       }
@@ -260,7 +261,7 @@ export const GameView: React.FC<GameViewProps> = ({
     socket.on('playerDamaged', (data: { targetPlayerId: string; damage: number; attackerName: string }) => {
       if (currentPlayer && data.targetPlayerId === currentPlayer.id) {
         showNotification(`💥 Hit by ${data.attackerName}! (-${data.damage} HP)`, 'error');
-        new Audio('/sounds/hit.wav').play().catch(console.error);
+        new Audio('/sounds/lasershot.wav').play().catch(console.error);
       }
     });
 
@@ -274,8 +275,8 @@ export const GameView: React.FC<GameViewProps> = ({
   // Update player stats when current player changes
   useEffect(() => {
     if (currentPlayer) {
-      setPlayerHealth(currentPlayer.health ?? 100);
-      setPlayerScore(currentPlayer.points ?? 0);
+      setPlayerHealth(currentPlayer.health);
+      setPlayerScore(currentPlayer.points);
     }
   }, [currentPlayer]);
 

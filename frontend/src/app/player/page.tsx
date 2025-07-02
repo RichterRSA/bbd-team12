@@ -8,6 +8,8 @@ import { io, Socket } from "socket.io-client";
 import QrScanner from "qr-scanner";
 import { drawDetections } from "@/utils/poseDetection";
 import { setupQrScannerWithWebcam, createThrottledQrHandler, createGameQrHandlers } from "@/utils/qrCodeScanning";
+import { isPersonInCrosshair, drawCrosshair } from "@/utils/crosshairUtils";
+import { triggerVibration } from "@/utils/deviceUtils";
 
 interface Player {
   id: string;
@@ -117,14 +119,21 @@ export default function PlayerView() {
     socketRef.current.on("gameStateUpdate", (updatedGameState: GameState) => {
       setGameState(updatedGameState);
       const currentPlayer = updatedGameState.players.find((p) => p.id === socketRef.current?.id);
-      if (currentPlayer) setPlayer(currentPlayer);
+      if (currentPlayer) {
+        // Check if health decreased (took damage)
+        if (player && currentPlayer.health < player.health) {
+          new Audio("/sounds/lasershot.wav").play().catch((e) => console.error("Damage sound error:", e));
+          triggerVibration();
+        }
+        setPlayer(currentPlayer);
+      }
     });
 
     socketRef.current.on("notification", (message: string) => {
       setNotifications((prev) => [...prev, message].slice(-3));
       if (message.includes("shot") || message.includes("hit") || message.includes("eliminated")) {
         triggerVibration();
-        new Audio("/sounds/laser.mp3").play().catch((e) => console.error("Sound error:", e));
+        new Audio("/sounds/singleshot.mp3").play().catch((e) => console.error("Sound error:", e));
       }
     });
 
@@ -149,7 +158,7 @@ export default function PlayerView() {
         isPersonInside = isPersonInCrosshair(poses[0], video.videoWidth, video.videoHeight, CROSSHAIR_RADIUS);
       }
 
-      drawCrosshair(canvasRef, webcamRef, CROSSHAIR_RADIUS, isPersonInside);
+      drawCrosshair(canvasRef, webcamRef, CROSSHAIR_RADIUS, isPersonInside, "rgba(255, 255, 255, 0.6)");
       drawDetections(poses, canvasRef, webcamRef, true);
 
       const now = Date.now();
@@ -191,11 +200,15 @@ export default function PlayerView() {
       const weapon = weapons.find((w) => w.type === type);
       if (weapon && player.points >= weapon.cost) {
         socketRef.current.emit("purchaseWeapon", { gameId: gameState.id, playerId: player.id, weapon });
+        new Audio("/sounds/reload.wav").play().catch((e) => console.error("Purchase sound error:", e));
+        setNotifications((prev) => [...prev, `Purchased ${weapon.type}!`].slice(-3));
       } else {
         setNotifications((prev) => [...prev, "Insufficient points for weapon"].slice(-3));
       }
     } else if (item === "life" && player.points >= 100) {
       socketRef.current.emit("purchaseLife", { gameId: gameState.id, playerId: player.id });
+      new Audio("/sounds/powerup.wav").play().catch((e) => console.error("Purchase sound error:", e));
+      setNotifications((prev) => [...prev, "Extra life purchased!"].slice(-3));
     } else {
       setNotifications((prev) => [...prev, "Insufficient points for life"].slice(-3));
     }
@@ -338,15 +351,3 @@ export default function PlayerView() {
     </div>
   );
 }
-function triggerVibration(): void {
-  throw new Error("Function not implemented.");
-}
-
-function isPersonInCrosshair(arg0: poseDetection.Pose, videoWidth: number, videoHeight: number, CROSSHAIR_RADIUS: number): boolean {
-  throw new Error("Function not implemented.");
-}
-
-function drawCrosshair(canvasRef: React.RefObject<HTMLCanvasElement | null>, webcamRef: React.RefObject<Webcam | null>, CROSSHAIR_RADIUS: number, isPersonInside: boolean) {
-  throw new Error("Function not implemented.");
-}
-

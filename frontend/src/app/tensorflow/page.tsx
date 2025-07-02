@@ -443,7 +443,7 @@ function TensorFlowContent() {
       setNotifications((prev) => [...prev, message].slice(-3));
       if (message.includes("shot") || message.includes("hit") || message.includes("eliminated")) {
         triggerVibration();
-        new Audio("/sounds/laser.mp3").play().catch((e) => console.error("Sound error:", e));
+        new Audio("/sounds/singleshot.mp3").play().catch((e) => console.error("Sound error:", e));
       }
     });
     return () => {
