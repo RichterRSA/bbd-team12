@@ -11,21 +11,12 @@ import {
   drawDetections,
   isMobileDevice,
 } from '@/utils/poseDetection';
-
-interface ColorSample {
-  color: string;
-  confidence: number;
-  timestamp: number;
-  rgb: { r: number; g: number; b: number };
-}
-
-interface AveragedColorResult {
-  dominantColor: string;
-  averageRgb: { r: number; g: number; b: number };
-  confidence: number;
-  sampleCount: number;
-  detectionDuration: number;
-}
+import { 
+  ColorScanner, 
+  ColorSample, 
+  AveragedColorResult, 
+  getColorStyle 
+} from '@/utils/colorDetection';
 
 const LobbyV2 = () => {
   // Camera and pose detection state
@@ -39,7 +30,6 @@ const LobbyV2 = () => {
   const [scanProgress, setScanProgress] = useState(0);
   const [colorSamples, setColorSamples] = useState<ColorSample[]>([]);
   const [finalResult, setFinalResult] = useState<AveragedColorResult | null>(null);
-  const [scanStartTime, setScanStartTime] = useState<number | null>(null);
   
   // UI state
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'info' | 'error'} | null>(null);
@@ -47,8 +37,7 @@ const LobbyV2 = () => {
   // Refs
   const webcamRef = useRef<Webcam>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const scanIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const colorScannerRef = useRef<ColorScanner | null>(null);
 
   // Constants
   const SCAN_DURATION = 1000; // 1 second in milliseconds
@@ -128,6 +117,37 @@ const LobbyV2 = () => {
     };
   }, [showCamera, poseModel]);
 
+  // Initialize ColorScanner when pose model and camera are ready
+  useEffect(() => {
+    if (poseModel && webcamRef.current?.video && showCamera) {
+      const videoElement = webcamRef.current.video;
+      
+      if (!colorScannerRef.current) {
+        colorScannerRef.current = new ColorScanner({
+          scanDuration: SCAN_DURATION,
+          sampleInterval: SAMPLE_INTERVAL
+        });
+      }
+      
+      colorScannerRef.current.initialize(poseModel, videoElement);
+      colorScannerRef.current.setCallbacks({
+        onProgress: (progress, samples) => {
+          setScanProgress(progress);
+          setColorSamples(samples);
+        },
+        onComplete: (result) => {
+          setIsScanning(false);
+          setFinalResult(result);
+          showNotification(`Color scanning complete! Detected: ${result.dominantColor}`, "success");
+        },
+        onError: (error) => {
+          setIsScanning(false);
+          showNotification(error, "error");
+        }
+      });
+    }
+  }, [poseModel, showCamera, SCAN_DURATION, SAMPLE_INTERVAL, showNotification]);
+
   // Drawing/rendering loop for pose overlay
   useEffect(() => {
     let renderFrameId: number | null = null;
@@ -151,226 +171,35 @@ const LobbyV2 = () => {
     };
   }, [currentPoses, showCamera]);
 
-  // Color sampling function
-  const sampleColor = useCallback(async (): Promise<ColorSample | null> => {
-    if (!poseModel || !webcamRef.current?.video) return null;
-
-    const video = webcamRef.current.video;
-    if (video.readyState !== 4) return null;
-
-    try {
-      // Get current pose
-      const poses = await poseModel.estimatePoses(video, {
-        flipHorizontal: false,
-        maxPoses: 1
-      });
-
-      if (poses.length === 0) {
-        return null;
-      }
-
-      // Extract color from torso region
-      const colorResult = extractTorsoColor(poses[0], video, 0.3);
-      if (colorResult) {
-        // Get raw RGB values from the torso area for averaging
-        const rgbResult = await getRawTorsoRGB(poses[0], video);
-        
-        return {
-          color: colorResult.color,
-          confidence: colorResult.confidence,
-          timestamp: Date.now(),
-          rgb: rgbResult || { r: 128, g: 128, b: 128 } // fallback
-        };
-      }
-    } catch (error) {
-      console.error("Error sampling color:", error);
-    }
-
-    return null;
-  }, [poseModel]);
-
-  // Helper function to get raw RGB values from torso
-  const getRawTorsoRGB = async (pose: poseDetection.Pose, video: HTMLVideoElement): Promise<{ r: number; g: number; b: number } | null> => {
-    // This is a simplified version - in a real implementation, you'd extract raw RGB
-    // from the torso region similar to extractTorsoColor but return raw RGB values
-    const coreBodyKeypointNames = ['left_shoulder', 'right_shoulder', 'left_hip', 'right_hip'];
-    
-    const validBodyKeypoints = pose.keypoints.filter(keypoint => 
-      keypoint.name && 
-      coreBodyKeypointNames.includes(keypoint.name) &&
-      keypoint.score && 
-      keypoint.score > 0.3
-    );
-
-    if (validBodyKeypoints.length < 3) return null;
-
-    // Create temporary canvas to sample video
-    const tempCanvas = document.createElement('canvas');
-    const tempCtx = tempCanvas.getContext('2d');
-    if (!tempCtx) return null;
-
-    tempCanvas.width = video.videoWidth;
-    tempCanvas.height = video.videoHeight;
-    tempCtx.drawImage(video, 0, 0);
-
-    // Calculate torso bounds
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    validBodyKeypoints.forEach(keypoint => {
-      minX = Math.min(minX, keypoint.x);
-      maxX = Math.max(maxX, keypoint.x);
-      minY = Math.min(minY, keypoint.y);
-      maxY = Math.max(maxY, keypoint.y);
-    });
-
-    // Sample center area of torso
-    const centerX = (minX + maxX) / 2;
-    const centerY = (minY + maxY) / 2;
-    const sampleSize = 20; // 20x20 pixel sample area
-    
-    const x = Math.max(0, Math.min(centerX - sampleSize/2, video.videoWidth - sampleSize));
-    const y = Math.max(0, Math.min(centerY - sampleSize/2, video.videoHeight - sampleSize));
-    
-    const imageData = tempCtx.getImageData(x, y, sampleSize, sampleSize);
-    const data = imageData.data;
-    
-    // Calculate average RGB
-    let r = 0, g = 0, b = 0, count = 0;
-    for (let i = 0; i < data.length; i += 4) {
-      r += data[i];
-      g += data[i + 1];
-      b += data[i + 2];
-      count++;
-    }
-    
-    if (count === 0) return null;
-    
-    return {
-      r: Math.round(r / count),
-      g: Math.round(g / count),
-      b: Math.round(b / count)
-    };
-  };
-
   // Start color scanning
   const startColorScan = useCallback(() => {
-    if (isScanning) return;
+    if (isScanning || !colorScannerRef.current) return;
     
     setIsScanning(true);
     setScanProgress(0);
     setColorSamples([]);
     setFinalResult(null);
-    setScanStartTime(Date.now());
     
     showNotification("Starting 1-second color scan...", "info");
+    colorScannerRef.current.startScan();
+  }, [isScanning, showNotification]);
 
-    // Start sampling interval
-    scanIntervalRef.current = setInterval(async () => {
-      const sample = await sampleColor();
-      if (sample) {
-        setColorSamples(prev => [...prev, sample]);
-      }
-    }, SAMPLE_INTERVAL);
-
-    // Start progress update interval
-    progressIntervalRef.current = setInterval(() => {
-      const elapsed = Date.now() - (scanStartTime || Date.now());
-      const progress = Math.min((elapsed / SCAN_DURATION) * 100, 100);
-      setScanProgress(progress);
-      
-      if (progress >= 100) {
-        stopColorScan();
-      }
-    }, 10);
-
-    // Auto-stop after scan duration
-    setTimeout(() => {
-      stopColorScan();
-    }, SCAN_DURATION);
-  }, [isScanning, sampleColor, scanStartTime, showNotification]);
-
-  // Stop color scanning and calculate results
+  // Stop color scanning
   const stopColorScan = useCallback(() => {
-    if (!isScanning) return;
+    if (!isScanning || !colorScannerRef.current) return;
     
+    colorScannerRef.current.stopScan();
     setIsScanning(false);
-    setScanProgress(100);
-    
-    // Clear intervals
-    if (scanIntervalRef.current) {
-      clearInterval(scanIntervalRef.current);
-      scanIntervalRef.current = null;
-    }
-    if (progressIntervalRef.current) {
-      clearInterval(progressIntervalRef.current);  
-      progressIntervalRef.current = null;
-    }
-
-    // Process collected samples
-    setColorSamples(currentSamples => {
-      if (currentSamples.length === 0) {
-        showNotification("No color samples collected. Please ensure a person is visible in the frame.", "error");
-        return currentSamples;
-      }
-
-      // Calculate average RGB
-      const totalR = currentSamples.reduce((sum, sample) => sum + sample.rgb.r, 0);
-      const totalG = currentSamples.reduce((sum, sample) => sum + sample.rgb.g, 0);
-      const totalB = currentSamples.reduce((sum, sample) => sum + sample.rgb.b, 0);
-      
-      const avgR = Math.round(totalR / currentSamples.length);
-      const avgG = Math.round(totalG / currentSamples.length);
-      const avgB = Math.round(totalB / currentSamples.length);
-
-      // Count color occurrences for dominant color
-      const colorCounts: { [key: string]: number } = {};
-      currentSamples.forEach(sample => {
-        colorCounts[sample.color] = (colorCounts[sample.color] || 0) + 1;
-      });
-
-      // Find dominant color
-      let dominantColor = '';
-      let maxCount = 0;
-      for (const [color, count] of Object.entries(colorCounts)) {
-        if (count > maxCount) {
-          maxCount = count;
-          dominantColor = color;
-        }
-      }
-
-      // Calculate average confidence
-      const avgConfidence = currentSamples.reduce((sum, sample) => sum + sample.confidence, 0) / currentSamples.length;
-      
-      // Calculate detection duration
-      const detectionDuration = scanStartTime ? Date.now() - scanStartTime : SCAN_DURATION;
-
-      const result: AveragedColorResult = {
-        dominantColor,
-        averageRgb: { r: avgR, g: avgG, b: avgB },
-        confidence: avgConfidence,
-        sampleCount: currentSamples.length,
-        detectionDuration
-      };
-
-      setFinalResult(result);
-      showNotification(`Color scanning complete! Detected: ${dominantColor}`, "success");
-      
-      return currentSamples;
-    });
-  }, [isScanning, scanStartTime, showNotification]);
+  }, [isScanning]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (scanIntervalRef.current) clearInterval(scanIntervalRef.current);
-      if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+      if (colorScannerRef.current) {
+        colorScannerRef.current.dispose();
+      }
     };
   }, []);
-
-  // Get color display style
-  const getColorStyle = (rgb: { r: number; g: number; b: number }) => ({
-    backgroundColor: `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`,
-    color: (rgb.r + rgb.g + rgb.b) > 384 ? '#000000' : '#FFFFFF'
-  });
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-violet-900 flex items-center justify-center p-4">
