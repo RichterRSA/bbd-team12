@@ -93,6 +93,8 @@ const Lobby = () => {
 
   // Connect to Socket.IO server
   useEffect(() => {
+    if (typeof window === 'undefined') return; // Only run on client
+
     setConnectionStatus('connecting');
     
     // Determine the correct socket URL based on environment
@@ -863,12 +865,23 @@ const Lobby = () => {
                 ) : null}
                 
                 <button
-                  onClick={() => setShowCamera(true)}
-                  disabled={!hasCameraPermission || !poseModel || isSubmittingColor}
+                  onClick={async () => {
+                    // Re-check camera permission if needed
+                    if (hasCameraPermission === null || hasCameraPermission === false) {
+                      const hasPermission = await requestCameraPermission(showNotification);
+                      setHasCameraPermission(hasPermission);
+                      if (!hasPermission) {
+                        showNotification('Camera permission is required to scan shirt colors', 'error');
+                        return;
+                      }
+                    }
+                    setShowCamera(true);
+                  }}
+                  disabled={!poseModel || isSubmittingColor}
                   className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg hover:from-purple-500 hover:to-pink-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 font-semibold flex items-center justify-center mx-auto"
                 >
                   <Camera className="mr-2" size={20} />
-                  Start AI Camera Scan
+                  {!poseModel ? 'Loading AI Model...' : 'Start AI Camera Scan'}
                 </button>
               </div>
             ) : (
@@ -897,22 +910,39 @@ const Lobby = () => {
                       onUserMediaError={(error) => {
                         console.error("Camera access error:", error);
                         
-                        // Try to recover with fallback constraints
-                        if (webcamRef.current) {
-                          console.log("Attempting camera recovery with fallback constraints...");
-                          
-                          // Force re-render with basic constraints
-                          setTimeout(() => {
-                            setShowCamera(false);
-                            setTimeout(() => {
-                              setShowCamera(true);
-                            }, 500);
-                          }, 1000);
-                        } else {
-                          setHasCameraPermission(false);
-                          setShowCamera(false);
-                          showNotification('Camera access failed. Please check permissions and try again.', 'error');
+                        // Set permission to false and show error
+                        setHasCameraPermission(false);
+                        setShowCamera(false);
+                        
+                        // Determine error message based on error type
+                        let errorMessage = 'Camera access failed. Please check permissions and try again.';
+                        if (error instanceof DOMException) {
+                          switch (error.name) {
+                            case 'NotAllowedError':
+                            case 'PermissionDeniedError':
+                              errorMessage = 'Camera permission denied. Please allow camera access in browser settings.';
+                              break;
+                            case 'NotFoundError':
+                            case 'DevicesNotFoundError':
+                              errorMessage = 'No camera found. Please ensure a camera is connected.';
+                              break;
+                            case 'NotReadableError':
+                            case 'TrackStartError':
+                              errorMessage = 'Camera is already in use by another application.';
+                              break;
+                            case 'OverconstrainedError':
+                            case 'ConstraintNotSatisfiedError':
+                              errorMessage = 'Camera settings not supported. Please try again.';
+                              break;
+                            default:
+                              if (error.message && error.message.includes('videosource')) {
+                                errorMessage = 'Camera resource conflict. Please close other applications using the camera and try again.';
+                              }
+                              break;
+                          }
                         }
+                        
+                        showNotification(errorMessage, 'error');
                       }}
                     />
                   ) : (
@@ -924,8 +954,11 @@ const Lobby = () => {
                           onClick={async () => {
                             const hasPermission = await requestCameraPermission(showNotification);
                             setHasCameraPermission(hasPermission);
-                            if (!hasPermission) {
-                              showNotification('Camera permission denied', 'error');
+                            if (hasPermission) {
+                              showNotification('Camera permission granted! You can now start scanning.', 'success');
+                              // Don't automatically restart camera, let user click "Start AI Camera Scan" again
+                            } else {
+                              showNotification('Camera permission denied. Please allow camera access in browser settings.', 'error');
                             }
                           }}
                           className="mt-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-500"
