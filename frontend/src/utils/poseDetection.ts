@@ -740,8 +740,9 @@ export function drawDetections(
       inCenter = true;
     }
   });
+  const col = getCrosshairTorsoColor(detections, webcamRef, videoWidth, videoHeight, crosshairRadius);
 
-  drawCrosshair(canvasRef, webcamRef, crosshairRadius, inCenter);
+  drawCrosshair(canvasRef, webcamRef, crosshairRadius, inCenter, col ? col.color : "rgba(255, 255, 255, 0.6)");
 }
 
 // Helper function to analyze image data for color detection
@@ -1344,7 +1345,8 @@ export const drawCrosshair = (
     canvasRef: React.RefObject<HTMLCanvasElement | null>,
     webcamRef: React.RefObject<Webcam | null>,
     crosshairRadius: number,
-    isPersonInside: boolean = false
+    isPersonInside: boolean = false,
+    color: string
 ) => {
     const ctx = canvasRef.current?.getContext("2d");
     const video = webcamRef.current?.video;
@@ -1383,7 +1385,7 @@ export const drawCrosshair = (
     const scaledRadius = crosshairRadius * scale;
 
     // Draw outer circle
-    ctx.strokeStyle = isPersonInside ? "rgba(0, 255, 0, 0.8)" : "rgba(255, 255, 255, 0.8)";
+    ctx.strokeStyle = isPersonInside ? color : "rgba(255, 255, 255, 0.8)";
     ctx.lineWidth = 3;
     ctx.setLineDash([]);
     ctx.beginPath();
@@ -1419,3 +1421,178 @@ export const drawCrosshair = (
     ctx.arc(centerX, centerY, 3, 0, 2 * Math.PI);
     ctx.fill();
 };
+
+// Function to get the torso color of the person in the crosshair
+// If multiple people are in crosshair, returns the one closest to center
+export const getCrosshairTorsoColor = (
+  detections: poseDetection.Pose[],
+  webcamRef: React.RefObject<Webcam | null>,
+  videoWidth: number,
+  videoHeight: number,
+  crosshairRadius: number,
+  confidenceThreshold: number = 0.3
+): { color: string; confidence: number; distance: number } | null => {
+  if (!detections || detections.length === 0) {
+    return null;
+  }
+
+  const video = webcamRef.current?.video;
+  if (!video) {
+    console.error("Video not ready for color extraction");
+    return null;
+  }
+
+  // Calculate frame center (crosshair center)
+  const frameCenterX = videoWidth / 2;
+  const frameCenterY = videoHeight / 2;
+
+  // Find all people in the crosshair and their distances to center
+  const candidatesInCrosshair: Array<{
+    pose: poseDetection.Pose;
+    distance: number;
+    torsoRect: { minX: number; maxX: number; minY: number; maxY: number };
+  }> = [];
+
+  for (const pose of detections) {
+    // Check if this person is in the crosshair
+    if (isPersonInCrosshair(pose, videoWidth, videoHeight, crosshairRadius, confidenceThreshold)) {
+      // Extract torso rectangle
+      const torsoRect = extractTorsoRectangle(pose, confidenceThreshold);
+      
+      if (torsoRect) {
+        // Calculate distance from torso center to crosshair center
+        const torsoCenterX = (torsoRect.minX + torsoRect.maxX) / 2;
+        const torsoCenterY = (torsoRect.minY + torsoRect.maxY) / 2;
+        
+        const distance = Math.sqrt(
+          Math.pow(torsoCenterX - frameCenterX, 2) + 
+          Math.pow(torsoCenterY - frameCenterY, 2)
+        );
+
+        candidatesInCrosshair.push({
+          pose,
+          distance,
+          torsoRect
+        });
+      }
+    }
+  }
+
+  if (candidatesInCrosshair.length === 0) {
+    return null;
+  }
+
+  // Sort by distance to center (closest first)
+  candidatesInCrosshair.sort((a, b) => a.distance - b.distance);
+
+  // Extract color from the closest person's torso
+  const closestCandidate = candidatesInCrosshair[0];
+  
+  // Use the same color extraction logic as extractTorsoColor but with our rectangle
+  const colorResult = extractTorsoColorFromRect(
+    closestCandidate.torsoRect,
+    video,
+    confidenceThreshold
+  );
+
+  if (colorResult) {
+    return {
+      color: colorResult.color,
+      confidence: colorResult.confidence,
+      distance: closestCandidate.distance
+    };
+  }
+
+  return null;
+};
+
+// Helper function to extract color from a specific torso rectangle
+const extractTorsoColorFromRect = (
+  torsoRect: { minX: number; maxX: number; minY: number; maxY: number },
+  video: HTMLVideoElement,
+  confidenceThreshold: number = 0.3
+): { color: string; confidence: number } | null => {
+  // Create a temporary canvas to capture the current video frame
+  if (typeof document === 'undefined') {
+    console.error("Document not available (SSR environment)");
+    return null;
+  }
+  
+  const tempCanvas = document.createElement('canvas');
+  const tempCtx = tempCanvas.getContext('2d');
+
+  if (!tempCtx) {
+    console.error("Could not create temporary canvas for color extraction.");
+    return null;
+  }
+
+  // Set temp canvas to video dimensions
+  tempCanvas.width = Math.round(video.videoWidth);
+  tempCanvas.height = Math.round(video.videoHeight);
+
+  // Draw the current video frame to temp canvas (clean video without overlays)
+  try {
+    tempCtx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
+  } catch (error) {
+    console.error("Error drawing video to temporary canvas:", error);
+    return null;
+  }
+
+  // Clamp rectangle bounds to video dimensions
+  const minX = Math.max(0, torsoRect.minX);
+  const minY = Math.max(0, torsoRect.minY);
+  const maxX = Math.min(video.videoWidth, torsoRect.maxX);
+  const maxY = Math.min(video.videoHeight, torsoRect.maxY);
+
+  // Apply minimum size constraints
+  const MIN_WIDTH = 20;
+  const MIN_HEIGHT = 20;
+  
+  let rectWidth = maxX - minX;
+  let rectHeight = maxY - minY;
+  let rectX = minX;
+  let rectY = minY;
+
+  const diffW = MIN_WIDTH - rectWidth;
+  const diffH = MIN_HEIGHT - rectHeight;
+
+  if (diffW > 0) {
+    rectX -= diffW / 2;
+    rectWidth = MIN_WIDTH;
+  }
+
+  if (diffH > 0) {
+    rectY -= diffH / 2;
+    rectHeight = MIN_HEIGHT;
+  }
+
+  // Ensure we don't go outside video bounds
+  rectX = Math.max(0, Math.min(rectX, video.videoWidth - rectWidth));
+  rectY = Math.max(0, Math.min(rectY, video.videoHeight - rectHeight));
+  rectWidth = Math.max(1, Math.min(rectWidth, video.videoWidth - rectX));
+  rectHeight = Math.max(1, Math.min(rectHeight, video.videoHeight - rectY));
+
+  // Validate all values are finite numbers before calling getImageData
+  if (!isFinite(rectX) || !isFinite(rectY) || !isFinite(rectWidth) || !isFinite(rectHeight)) {
+    console.error("Invalid rect coordinates:", { rectX, rectY, rectWidth, rectHeight });
+    return null;
+  }
+
+  if (rectWidth <= 0 || rectHeight <= 0) {
+    console.error("Invalid rect dimensions:", { rectWidth, rectHeight });
+    return null;
+  }
+
+  // Get image data from the torso rectangle
+  const data: ImageData = tempCtx.getImageData(
+    Math.round(rectX), 
+    Math.round(rectY), 
+    Math.round(rectWidth), 
+    Math.round(rectHeight)
+  );
+  
+  // Use the existing analysis function
+  return analyzeImageData(data);
+};
+
+//# sourceMappingURL=index.d.ts.map
