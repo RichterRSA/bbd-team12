@@ -65,7 +65,7 @@ export const GameView: React.FC<GameViewProps> = ({
 
     // Calculate color difference
     const distance = colorDistance(rgbA, rgbB);
-    return distance < 50; // Increased threshold for more lenient color matching
+    return distance < 30; // Increased threshold for more lenient color matching
   };
 
   // Function to determine crosshair color based on pose detection and color matching
@@ -226,14 +226,14 @@ export const GameView: React.FC<GameViewProps> = ({
                   );
                   
                   // Only show if the distance is within an acceptable range
-                  if (closestMatch.distance < 50) {
+                  if (closestMatch.distance < 30) {
                     return (
                       <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex flex-col items-center">
                         <div className="bg-green-500 text-black px-4 py-2 rounded-full text-sm font-bold animate-pulse mb-1">
                           Target Acquired: {closestMatch.player.name}
                         </div>
                         <div className="text-xs text-gray-300">
-                          Match confidence: {Math.round((1 - closestMatch.distance / 50) * 100)}%
+                          Match confidence: {Math.round((1 - closestMatch.distance / 30) * 100)}%
                         </div>
                       </div>
                     );
