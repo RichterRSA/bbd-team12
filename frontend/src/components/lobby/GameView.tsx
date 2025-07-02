@@ -203,7 +203,7 @@ export const GameView: React.FC<GameViewProps> = ({
       {/* Main Game View */}
       <div className="relative w-full h-full">
         {hasCameraPermission ? (
-          <div className="relative w-full h-full" onClick={handleShoot} style={{ cursor: 'crosshair' }}>
+          <div className="relative w-full h-full" style={{ cursor: 'crosshair' }}>
             <Webcam
               ref={webcamRef}
               audio={false}
@@ -237,6 +237,19 @@ export const GameView: React.FC<GameViewProps> = ({
                     </div>
                   </div>
                 </div>
+              </div>
+
+              {/* Shoot Button - Bottom Center */}
+              <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2">
+                <button
+                  onClick={handleShoot}
+                  className={`px-8 py-4 bg-red-600 text-white rounded-full font-bold text-xl shadow-lg 
+                    transition-all duration-200 ${isShooting ? 'scale-95 bg-red-700' : 'hover:bg-red-500'}
+                    ${Date.now() - lastShotTime < SHOOT_COOLDOWN ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  disabled={Date.now() - lastShotTime < SHOOT_COOLDOWN}
+                >
+                  🎯 FIRE!
+                </button>
               </div>
 
               {/* Weapon Info - Top Right */}
