@@ -45,7 +45,7 @@ export default function PlayerView() {
   const lastItemScanTimeRef = useRef<number>(0);
   const qrScannerRef = useRef<QrScanner | null>(null);
 
-  // Initialize Socket.IO, TensorFlow model, and QR Scanner
+  // Initialize Socket.IO and TensorFlow model
   useEffect(() => {
     socketRef.current = io("http://localhost:3001", { transports: ["websocket"] });
 
@@ -66,23 +66,8 @@ export default function PlayerView() {
       }
     };
 
-    const initQrScanner = () => {
-      const video = webcamRef.current?.video;
-      if (video) {
-        qrScannerRef.current = new QrScanner(video, (result) => {
-          // Handled in detectQRCode
-        }, {
-          returnDetailedScanResult: true,
-          highlightScanRegion: false,
-          highlightCodeOutline: false,
-          maxScansPerSecond: 5
-        });
-      }
-    };
-
     initModel();
     checkCameraPermission();
-    initQrScanner();
 
     return () => {
       socketRef.current?.disconnect();
@@ -90,6 +75,93 @@ export default function PlayerView() {
       qrScannerRef.current?.destroy();
     };
   }, []);
+
+  // Initialize QR Scanner when webcam is ready
+  useEffect(() => {
+    if (!webcamRef.current?.video || !hasCameraPermission) return;
+
+    const video = webcamRef.current.video;
+    
+    // Wait for video to be ready
+    const initQrScanner = () => {
+      if (video.readyState >= 2) { // HAVE_CURRENT_DATA
+        qrScannerRef.current = new QrScanner(video, (result) => {
+          console.log("QR Code detected:", result);
+          setQrCodeText(result.data);
+          handleQrCodeScan(result.data);
+        }, {
+          returnDetailedScanResult: true,
+          highlightScanRegion: false,
+          highlightCodeOutline: false,
+          maxScansPerSecond: 5
+        });
+        
+        qrScannerRef.current.start().catch((error) => {
+          console.error("Failed to start QR scanner:", error);
+        });
+      } else {
+        video.addEventListener('loadeddata', initQrScanner, { once: true });
+      }
+    };
+
+    initQrScanner();
+
+    return () => {
+      qrScannerRef.current?.stop();
+      qrScannerRef.current?.destroy();
+    };
+  }, [hasCameraPermission, webcamRef.current?.video]);
+
+  // Handle QR code scanning logic
+  const handleQrCodeScan = (result: string) => {
+    if (!gameState || !player || !socketRef.current) return;
+
+    const now = Date.now();
+    if (now - lastItemScanTimeRef.current <= 2000) return; // Throttle scans
+
+    if (player.status === "dead" && result !== "revive") {
+      socketRef.current.emit("notification", "Cannot scan items: You are dead");
+      return;
+    }
+
+    if (["pistol", "rifle", "sniper"].includes(result) && player.status === "alive") {
+      const weapons = [
+        { type: "Pistol", damage: 10, cost: 0 },
+        { type: "Rifle", damage: 20, cost: 0 },
+        { type: "Sniper", damage: 50, cost: 0 }
+      ];
+      const weapon = weapons.find((w) => w.type.toLowerCase() === result);
+      if (weapon) {
+        socketRef.current.emit("purchaseWeapon", {
+          gameId: gameState.id,
+          playerId: socketRef.current.id,
+          weapon
+        });
+        setNotifications((prev) => [...prev, `Scanned ${result} weapon`].slice(-3));
+        triggerVibration();
+        new Audio("/sounds/powerup.wav").play().catch((e) => console.error("Sound error:", e));
+      }
+    } else if (result === "treasure" && player.status === "alive") {
+      socketRef.current.emit("collectTreasure", {
+        gameId: gameState.id,
+        playerId: socketRef.current.id,
+        item: result
+      });
+      setNotifications((prev) => [...prev, `Scanned treasure`].slice(-3));
+      triggerVibration();
+      new Audio("/sounds/lasershot.mp3").play().catch((e) => console.error("Sound error:", e));
+    } else if (result === "revive" && player.status === "dead") {
+      socketRef.current.emit("revivePlayer", {
+        gameId: gameState.id,
+        playerId: socketRef.current.id
+      });
+      setNotifications((prev) => [...prev, `Scanned revive`].slice(-3));
+      triggerVibration();
+      new Audio("/sounds/lasershot.mp3").play().catch((e) => console.error("Sound error:", e));
+    }
+    
+    lastItemScanTimeRef.current = now;
+  };
 
   // Handle Socket.IO events
   useEffect(() => {
@@ -115,7 +187,7 @@ export default function PlayerView() {
     };
   }, []);
 
-  // Handle pose detection and QR code scanning
+  // Handle pose detection
   useEffect(() => {
     if (!model || !webcamRef.current?.video || !canvasRef.current || !hasCameraPermission || !gameState || !player) return;
 
@@ -146,63 +218,10 @@ export default function PlayerView() {
       }
     };
 
-    const detectQRCode = async () => {
-      if (!qrScannerRef.current) return;
-
-      try {
-        const result = await QrScanner.scanImage(webcamRef.current?.video!);
-        setQrCodeText(result);
-        const now = Date.now();
-        if (now - lastItemScanTimeRef.current > 2000) {
-          if (player.status === "dead" && result !== "revive") {
-            socketRef.current?.emit("notification", "Cannot scan items: You are dead");
-          } else if (["pistol", "rifle", "sniper"].includes(result) && player.status === "alive") {
-            const weapons = [
-              { type: "Pistol", damage: 10, cost: 0 },
-              { type: "Rifle", damage: 20, cost: 0 },
-              { type: "Sniper", damage: 50, cost: 0 }
-            ];
-            const weapon = weapons.find((w) => w.type.toLowerCase() === result);
-            if (weapon) {
-              socketRef.current?.emit("purchaseWeapon", {
-                gameId: gameState.id,
-                playerId: socketRef.current?.id,
-                weapon
-              });
-              setNotifications((prev) => [...prev, `Scanned ${result} weapon`].slice(-3));
-              triggerVibration();
-              new Audio("/sounds/powerup.wav").play().catch((e) => console.error("Sound error:", e));
-            }
-          } else if (result === "treasure" && player.status === "alive") {
-            socketRef.current?.emit("collectTreasure", {
-              gameId: gameState.id,
-              playerId: socketRef.current?.id,
-              item: result
-            });
-            setNotifications((prev) => [...prev, `Scanned treasure`].slice(-3));
-            triggerVibration();
-            new Audio("/sounds/lasershot.mp3").play().catch((e) => console.error("Sound error:", e));
-          } else if (result === "revive" && player.status === "dead") {
-            socketRef.current?.emit("revivePlayer", {
-              gameId: gameState.id,
-              playerId: socketRef.current?.id
-            });
-            setNotifications((prev) => [...prev, `Scanned revive`].slice(-3));
-            triggerVibration();
-            new Audio("/sounds/lasershot.mp3").play().catch((e) => console.error("Sound error:", e));
-          }
-          lastItemScanTimeRef.current = now;
-        }
-      } catch (error) {
-        setQrCodeText(null); // Clear text if no QR code is detected
-      }
-    };
-
     const poseInterval = setInterval(detectPoses, 1000 / 60); // 60 FPS for pose detection
-    const qrInterval = setInterval(detectQRCode, 1000 / 5); // 5 FPS for QR code detection
+    
     return () => {
       clearInterval(poseInterval);
-      clearInterval(qrInterval);
     };
   }, [model, gameState, player, hasCameraPermission]);
 
@@ -273,6 +292,9 @@ export default function PlayerView() {
           ref={webcamRef}
           className="absolute top-0 left-0 w-full h-full object-cover"
           screenshotFormat="image/jpeg"
+          videoConstraints={{
+            facingMode: "environment"
+          }}
         />
         <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full" />
         {/* QR Code Text Overlay */}
