@@ -53,20 +53,20 @@ export const GameView: React.FC<GameViewProps> = ({
 
   // Function to handle shooting
   const handleShoot = useCallback(() => {
-    // Check if player can shoot
-    if (!currentPlayer?.weapon) {
-      showNotification('❌ No weapon equipped!', 'error');
-      return;
-    }
-    
-    if (currentPlayer.status === 'dead') {
+    if (currentPlayer?.status === 'dead') {
       showNotification('💀 You are eliminated!', 'error');
       return;
     }
 
     const now = Date.now();
     if (now - lastShotTime < SHOOT_COOLDOWN) {
-      showNotification('🕒 Weapon cooling down...', 'info');
+      showNotification('🕒 Laser cooling down...', 'info');
+      return;
+    }
+
+    // Check if player is in a valid state to shoot
+    if (!currentPlayer) {
+      showNotification('⚠️ Player not found', 'error');
       return;
     }
 
@@ -102,21 +102,18 @@ export const GameView: React.FC<GameViewProps> = ({
       if (closestMatch.player.status === 'dead') {
         showNotification('💀 Target is already eliminated!', 'info');
         return;
-      }
-      
-      // Emit the damage event to the server
-      if (socket && gameState.id && closestMatch.player.id) {
+      }          // Emit the damage event to the server
+      if (socket && gameState.id && closestMatch.player.id && currentPlayer) {
         socket.emit('playerDamage', {
           gameId: gameState.id,
-          targetPlayerId: closestMatch.player.id,
-          damage: currentPlayer.weapon.damage
+          targetPlayerId: closestMatch.player.id
         });
         showNotification(`🎯 Shot fired at ${closestMatch.player.name}!`, 'success');
       }
     } else {
       showNotification('📏 Target too far or not clear enough', 'info');
     }
-  }, [lastShotTime, socket, gameState.id, currentPlayer?.team, showNotification, playShootSound]);
+  }, [lastShotTime, socket, gameState?.id, currentPlayer, showNotification, playShootSound]);
 
   // Add shoot animation cleanup
   useEffect(() => {
@@ -237,7 +234,7 @@ export const GameView: React.FC<GameViewProps> = ({
 
     // Listen for health updates
     socket.on('playerHealthUpdate', (data: { playerId: string; health: number }) => {
-      if (data.playerId === currentPlayer?.id) {
+      if (currentPlayer && data.playerId === currentPlayer.id) {
         setPlayerHealth(data.health);
         if (data.health <= 20) {
           showNotification('⚠️ Low health!', 'error');
@@ -247,7 +244,7 @@ export const GameView: React.FC<GameViewProps> = ({
 
     // Listen for score updates
     socket.on('playerScoreUpdate', (data: { playerId: string; points: number }) => {
-      if (data.playerId === currentPlayer?.id) {
+      if (currentPlayer && data.playerId === currentPlayer.id) {
         setPlayerScore(data.points);
         showNotification('🎯 Score updated!', 'success');
       }
@@ -255,7 +252,7 @@ export const GameView: React.FC<GameViewProps> = ({
 
     // Listen for damage taken
     socket.on('playerDamaged', (data: { targetPlayerId: string; damage: number; attackerName: string }) => {
-      if (data.targetPlayerId === currentPlayer?.id) {
+      if (currentPlayer && data.targetPlayerId === currentPlayer.id) {
         showNotification(`💥 Hit by ${data.attackerName}! (-${data.damage} HP)`, 'error');
         new Audio('/sounds/hit.wav').play().catch(console.error);
       }
@@ -330,18 +327,15 @@ export const GameView: React.FC<GameViewProps> = ({
                 </button>
               </div>
 
-              {/* Weapon Info - Top Right */}
-              {currentPlayer?.weapon && (
-                <div className="absolute top-4 right-16 bg-black/60 backdrop-blur-sm rounded-lg p-3">
-                  <div className="text-white text-sm">
-                    <div className="flex items-center gap-2">
-                      <span>🔫</span>
-                      <span>{currentPlayer.weapon.type}</span>
-                      <span className="text-red-400">({currentPlayer.weapon.damage} DMG)</span>
-                    </div>
+              {/* Weapon Icon - Top Right */}
+              <div className="absolute top-4 right-16 bg-black/60 backdrop-blur-sm rounded-lg p-3">
+                <div className="text-white text-sm">
+                  <div className="flex items-center gap-2">
+                    <span>🔫</span>
+                    <span>Laser Gun</span>
                   </div>
                 </div>
-              )}
+              </div>
 
               {/* Crosshair */}
               <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none">
