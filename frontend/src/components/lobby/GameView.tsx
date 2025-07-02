@@ -1,10 +1,11 @@
 "use client";
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Camera, LogOut, Menu, Info } from 'lucide-react';
 import Webcam from "react-webcam";
 import * as poseDetection from '@tensorflow-models/pose-detection';
 import { isMobileDevice, requestCameraPermission } from '@/utils/deviceUtils';
 import { GameState, Player } from './types';
+import { getCrosshairTorsoColor, isPersonInCrosshair } from '@/utils/crosshairUtils';
 
 interface GameViewProps {
   gameState: GameState;
@@ -33,6 +34,47 @@ export const GameView: React.FC<GameViewProps> = ({
 }) => {
   const [showMenu, setShowMenu] = useState(false);
   const [showInstructions, setShowInstructions] = useState(false);
+
+  // Function to determine crosshair color based on pose detection and color matching
+  const getCrosshairState = useCallback(() => {
+    if (!currentPoses || currentPoses.length === 0 || !webcamRef.current?.video) {
+      return { isTargetDetected: false, color: "rgba(128, 128, 128, 0.6)" }; // Default gray
+    }
+
+    const video = webcamRef.current.video;
+
+    // Check if any person is in the crosshair
+    const personInCrosshair = currentPoses.some(pose => 
+      isPersonInCrosshair(pose, video.videoWidth, video.videoHeight, 80)
+    );
+
+    if (!personInCrosshair) {
+      return { isTargetDetected: false, color: "rgba(128, 128, 128, 0.6)" }; // Gray when no person in crosshair
+    }
+
+    // Get the color of the person in crosshair
+    const colorResult = getCrosshairTorsoColor(currentPoses, webcamRef, video.videoWidth, video.videoHeight, 80);
+    
+    if (!colorResult) {
+      return { isTargetDetected: true, color: "rgba(255, 255, 0, 0.6)" }; // Yellow if person detected but color unknown
+    }
+
+    // Check if the detected color matches any team color
+    const isValidTarget = gameState.players?.some(player => {
+      // Convert both colors to simple color names (e.g., "red", "blue")
+      const teamColor = player.team.toLowerCase();
+      const detectedColor = colorResult.color.toLowerCase();
+      
+      // Check if the detected color contains the team color name
+      // This handles cases like "rgb(255,0,0)" matching with "red"
+      return detectedColor.includes(teamColor) || teamColor.includes(detectedColor);
+    });
+
+    return {
+      isTargetDetected: true,
+      color: isValidTarget ? "rgba(0, 255, 0, 0.6)" : "rgba(255, 255, 0, 0.6)" // Green if player detected, yellow if unknown person
+    };
+  }, [currentPoses, webcamRef, gameState.players]);
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-black">
@@ -88,22 +130,35 @@ export const GameView: React.FC<GameViewProps> = ({
                 </div>
               )}
 
-              {/* Crosshair and targeting */}
-              <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
-                <div className="w-32 h-32 border-4 border-green-400 bg-green-400/10 rounded-full relative">
+              {/* Crosshair */}
+              {(() => {
+                const { isTargetDetected, color } = getCrosshairState();
+                return (
                   <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
-                    <div className="w-8 h-1 bg-green-400"></div>
-                    <div className="w-1 h-8 bg-green-400 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"></div>
+                    <div className={`w-32 h-32 border-4 rounded-full relative transition-colors duration-200`}
+                         style={{ borderColor: color, backgroundColor: color.replace('0.6', '0.1') }}>
+                      <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
+                        <div className="w-8 h-1" style={{ backgroundColor: color }}></div>
+                        <div className="w-1 h-8 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"
+                             style={{ backgroundColor: color }}></div>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
+                );
+              })()}
 
               {/* Target Detection Indicator */}
-              {currentPoses.length > 0 && (
-                <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-green-500 text-black px-4 py-2 rounded-full text-sm font-bold animate-pulse">
-                  Target Locked
-                </div>
-              )}
+              {(() => {
+                const { isTargetDetected, color } = getCrosshairState();
+                if (isTargetDetected && color === "rgba(0, 255, 0, 0.6)") {
+                  return (
+                    <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-green-500 text-black px-4 py-2 rounded-full text-sm font-bold animate-pulse">
+                      Target Locked
+                    </div>
+                  );
+                }
+                return null;
+              })()}
             </div>
             
             {/* Pose detection overlay */}
