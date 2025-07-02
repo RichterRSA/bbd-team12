@@ -7,13 +7,11 @@ import { io, Socket } from "socket.io-client";
 import { ready } from "@tensorflow/tfjs";
 import QrScanner from "qr-scanner";
 import { 
-  requestCameraPermission, 
   drawDetections,
-  isPersonInCrosshair,
-  triggerVibration,
-  drawCrosshair,
 } from "../../utils/poseDetection";
 import { setupQrScannerWithWebcam, createGameQrHandlers } from "../../utils/qrCodeScanning";
+import { requestCameraPermission, triggerVibration } from "@/utils/deviceUtils";
+import { isPersonInCrosshair, drawCrosshair } from "@/utils/crosshairUtils";
 //import { drawCrosshair, isPersonInCrosshair, triggerVibration } from "../../utils/poseDetection";
 
 interface Player {
