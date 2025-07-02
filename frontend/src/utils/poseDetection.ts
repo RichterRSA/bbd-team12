@@ -7,6 +7,10 @@ export interface Coordinate {
 }
 
 export const isMobileDevice = () => {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') {
+    return false; // Default to false during SSR
+  }
+  
   return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
          (navigator.maxTouchPoints && navigator.maxTouchPoints > 2);
 };
@@ -87,7 +91,8 @@ export const extractTorsoBox = (
   pose: poseDetection.Pose,
   confidenceThreshold: number = 0.3,
 ): Coordinate[] | null => {
-  if (!pose.keypoints || pose.keypoints.length === 0) {
+  // Validate inputs
+  if (!pose || !pose.keypoints || pose.keypoints.length === 0) {
     return null;
   }
 
@@ -97,12 +102,20 @@ export const extractTorsoBox = (
   ];
 
   const validBodyKeypoints = pose.keypoints.filter(keypoint => 
+    keypoint &&
     keypoint.name && 
     coreBodyKeypointNames.includes(keypoint.name) &&
     keypoint.score && 
     keypoint.score > confidenceThreshold &&
-    isFinite(keypoint.x) && isFinite(keypoint.y) // Ensure coordinates are finite
+    typeof keypoint.x === 'number' && typeof keypoint.y === 'number' &&
+    isFinite(keypoint.x) && isFinite(keypoint.y) && // Ensure coordinates are finite
+    keypoint.x >= 0 && keypoint.y >= 0 // Ensure coordinates are non-negative
   );
+
+  // Need at least 3 valid keypoints for a meaningful torso box
+  if (validBodyKeypoints.length < 3) {
+    return null;
+  }
 
   const result: Coordinate[] = [
     {x: 0, y: 0},
@@ -161,6 +174,12 @@ export const drawTorsoBox = (
   webcamRef: React.RefObject<Webcam | null>,
   confidenceThreshold: number = 0.3
 ): {r: number, g: number, b: number} | null => {
+  // Validate inputs
+  if (!pose || !pose.keypoints) {
+    console.warn("Invalid pose data provided to drawTorsoBox");
+    return null;
+  }
+
   const ctx = canvasRef.current?.getContext("2d");
   const video = webcamRef.current?.video;
 
@@ -172,11 +191,23 @@ export const drawTorsoBox = (
   const canvas = canvasRef.current;
   if (!canvas) return null;
 
-  // Get scaling factors
+  // Get scaling factors with validation
   const videoWidth = video.videoWidth;
   const videoHeight = video.videoHeight;
   const displayWidth = video.clientWidth;
   const displayHeight = video.clientHeight;
+
+  // Validate video dimensions
+  if (!videoWidth || !videoHeight || !displayWidth || !displayHeight) {
+    console.warn("Invalid video dimensions:", { videoWidth, videoHeight, displayWidth, displayHeight });
+    return null;
+  }
+
+  if (!isFinite(videoWidth) || !isFinite(videoHeight) || !isFinite(displayWidth) || !isFinite(displayHeight)) {
+    console.warn("Non-finite video dimensions:", { videoWidth, videoHeight, displayWidth, displayHeight });
+    return null;
+  }
+
   const scaleX = displayWidth / videoWidth;
   const scaleY = displayHeight / videoHeight;
 
@@ -209,16 +240,44 @@ export const drawTorsoBox = (
   let minY = Infinity;
   let maxY = -Infinity;
 
-  boundingBox?.forEach(point => {
-    if (point.x < minX) minX = point.x;
-    if (point.x > maxX) maxX = point.x;
-    if (point.y < minY) minY = point.y;
-    if (point.y > maxY) maxY = point.y;
-  });
+  // Safely extract bounds with validation
+  try {
+    boundingBox?.forEach(point => {
+      // Validate point coordinates are finite numbers
+      if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') {
+        console.warn("Invalid point in bounding box:", point);
+        return;
+      }
+      
+      if (!isFinite(point.x) || !isFinite(point.y)) {
+        console.warn("Non-finite coordinates in bounding box:", point);
+        return;
+      }
+      
+      if (point.x < minX) minX = point.x;
+      if (point.x > maxX) maxX = point.x;
+      if (point.y < minY) minY = point.y;
+      if (point.y > maxY) maxY = point.y;
+    });
+  } catch (error) {
+    console.error("Error processing bounding box coordinates:", error);
+    return null;
+  }
 
   if (minX === Infinity || minY === Infinity || 
       maxX === -Infinity || maxY === -Infinity) {
+    console.warn("Could not determine valid bounding box bounds");
     return null;
+  }
+
+  // Additional validation for reasonable coordinate ranges
+  if (minX < 0 || minY < 0 || maxX > videoWidth || maxY > videoHeight) {
+    console.warn("Bounding box coordinates outside video bounds:", { minX, minY, maxX, maxY, videoWidth, videoHeight });
+    // Clamp to video bounds rather than returning null
+    minX = Math.max(0, minX);
+    minY = Math.max(0, minY);
+    maxX = Math.min(videoWidth, maxX);
+    maxY = Math.min(videoHeight, maxY);
   }
 
   // Validate scaling factors are finite
@@ -262,6 +321,11 @@ export const drawTorsoBox = (
   }
 
   // Create a temporary canvas to capture the current video frame
+  if (typeof document === 'undefined') {
+    console.error("Document not available (SSR environment)");
+    return null;
+  }
+  
   const tempCanvas = document.createElement('canvas');
   const tempCtx = tempCanvas.getContext('2d');
 
@@ -423,6 +487,12 @@ export function drawDetections(
   webcamRef: React.RefObject<Webcam | null>,
   highFpsMode: boolean = true
 ) {
+  // Validate inputs
+  if (!detections || !Array.isArray(detections)) {
+    console.warn("Invalid detections array provided to drawDetections");
+    return;
+  }
+
   const ctx = canvasRef.current?.getContext("2d");
   const video = webcamRef.current?.video;
 
@@ -441,6 +511,17 @@ export function drawDetections(
   const displayWidth = video.clientWidth;
   const displayHeight = video.clientHeight;
 
+  // Validate dimensions
+  if (!videoWidth || !videoHeight || !displayWidth || !displayHeight) {
+    console.warn("Invalid video dimensions in drawDetections:", { videoWidth, videoHeight, displayWidth, displayHeight });
+    return;
+  }
+
+  if (!isFinite(videoWidth) || !isFinite(videoHeight) || !isFinite(displayWidth) || !isFinite(displayHeight)) {
+    console.warn("Non-finite video dimensions in drawDetections:", { videoWidth, videoHeight, displayWidth, displayHeight });
+    return;
+  }
+
   // Set canvas size to match the displayed video
   canvas.width = displayWidth;
   canvas.height = displayHeight;
@@ -449,6 +530,12 @@ export function drawDetections(
   const scaleX = displayWidth / videoWidth;
   const scaleY = displayHeight / videoHeight;
 
+  // Validate scaling factors
+  if (!isFinite(scaleX) || !isFinite(scaleY) || scaleX <= 0 || scaleY <= 0) {
+    console.error("Invalid scaling factors in drawDetections:", { scaleX, scaleY });
+    return;
+  }
+
   // Clear previous drawings
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   
@@ -456,10 +543,13 @@ export function drawDetections(
   const confidenceThreshold = highFpsMode ? 0.1 : 0.5;
   
   // Draw all detected poses
-  detections.forEach(pose => {
-    if (!pose.keypoints || pose.keypoints.length === 0) return;
-    
-    const keypoints: poseDetection.Keypoint[] = pose.keypoints;
+  detections.forEach((pose, index) => {
+    try {
+      if (!pose || !pose.keypoints || pose.keypoints.length === 0) {
+        return;
+      }
+      
+      const keypoints: poseDetection.Keypoint[] = pose.keypoints;
     
     // Draw connections (skeleton) - optimized for high framerates
     ctx.strokeStyle = "rgba(0, 128, 255, 0.9)"; // Semi-transparent blue
@@ -468,12 +558,24 @@ export function drawDetections(
     // Draw keypoints - optimized for high framerates
     keypoints.forEach(keypoint => {
       if (keypoint.score && keypoint.score > confidenceThreshold) {
+        // Validate keypoint coordinates
+        if (!isFinite(keypoint.x) || !isFinite(keypoint.y)) {
+          console.warn("Non-finite keypoint coordinates:", keypoint);
+          return;
+        }
+
         const x = keypoint.x;
         const y = keypoint.y;
 
         // Scale the coordinates to match the displayed video size
         const scaledX = x * scaleX;
         const scaledY = y * scaleY;
+
+        // Validate scaled coordinates
+        if (!isFinite(scaledX) || !isFinite(scaledY)) {
+          console.warn("Non-finite scaled coordinates:", { scaledX, scaledY, x, y, scaleX, scaleY });
+          return;
+        }
 
         // Draw filled circle for each keypoint
         ctx.fillStyle = "rgba(255, 0, 0, 0.9)"; // Semi-transparent red
@@ -483,8 +585,17 @@ export function drawDetections(
       }
     });
 
-    // Draw the torso box
-    drawTorsoBox(pose, canvasRef, webcamRef, confidenceThreshold);
+    // Draw the torso box with error handling
+    try {
+      drawTorsoBox(pose, canvasRef, webcamRef, confidenceThreshold);
+    } catch (error) {
+      console.error("Error drawing torso box:", error);
+      // Continue processing other poses even if one fails
+    }
+    } catch (error) {
+      console.error(`Error processing pose ${index}:`, error);
+      // Continue with next pose
+    }
   }); 
 }
 
@@ -515,6 +626,11 @@ export const extractTorsoColor = (
   }
 
   // Create a temporary canvas to capture the current video frame
+  if (typeof document === 'undefined') {
+    console.error("Document not available (SSR environment)");
+    return null;
+  }
+  
   const tempCanvas = document.createElement('canvas');
   const tempCtx = tempCanvas.getContext('2d');
 

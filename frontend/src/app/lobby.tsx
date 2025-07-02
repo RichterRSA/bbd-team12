@@ -93,6 +93,8 @@ const Lobby = () => {
 
   // Connect to Socket.IO server
   useEffect(() => {
+    if (typeof window === 'undefined') return; // Only run on client
+
     setConnectionStatus('connecting');
     
     // Determine the correct socket URL based on environment
