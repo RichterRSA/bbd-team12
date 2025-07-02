@@ -786,15 +786,5 @@ export const analyzeImageData = (data: ImageData): {color: string, confidence: n
   const avgG = Math.round(totalG / count);
   const avgB = Math.round(totalB / count);
 
-  // Use the raw average color
-  const color = `rgb(${avgR},${avgG},${avgB})`;
-  const confidence = 1.0; // Always return full confidence since we're using raw values
-
-  // Log the raw color values
-  console.log('Raw color analysis:', {
-    averageColor: `rgb(${avgR},${avgG},${avgB})`,
-    sampleCount: count
-  });
-
   return { color: `rgb(${avgR},${avgG},${avgB})`, confidence: 1.0 };
 };

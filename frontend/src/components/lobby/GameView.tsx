@@ -53,35 +53,68 @@ export const GameView: React.FC<GameViewProps> = ({
 
   // Function to handle shooting
   const handleShoot = useCallback(() => {
+    // Check if player can shoot
+    if (!currentPlayer?.weapon) {
+      showNotification('❌ No weapon equipped!', 'error');
+      return;
+    }
+    
+    if (currentPlayer.status === 'dead') {
+      showNotification('💀 You are eliminated!', 'error');
+      return;
+    }
+
     const now = Date.now();
     if (now - lastShotTime < SHOOT_COOLDOWN) {
-      return; // Still in cooldown
+      showNotification('🕒 Weapon cooling down...', 'info');
+      return;
     }
 
     const state = getCrosshairState();
-    if (state.isTargetDetected && state.debugInfo.playerMatches.length > 0) {
-      // Find the closest matching player
-      const closestMatch = state.debugInfo.playerMatches.reduce((prev, current) => 
-        prev.distance < current.distance ? prev : current
-      );
-      
-      // Only shoot if the match is close enough and it's an enemy player
-      if (closestMatch.distance < 30 && 
-          closestMatch.player.team !== currentPlayer?.team && 
-          closestMatch.player.status !== 'dead') {
-        setLastShotTime(now);
-        playShootSound();
-        setIsShooting(true);
-        
-        // Emit the damage event to the server
-        if (socket && gameState.id && closestMatch.player.id) {
-          socket.emit('playerDamage', {
-            gameId: gameState.id,
-            targetPlayerId: closestMatch.player.id
-          });
-          showNotification(`Shot fired at ${closestMatch.player.name}!`, 'info');
-        }
+    
+    // Always play sound and show animation when attempting to shoot
+    setLastShotTime(now);
+    playShootSound();
+    setIsShooting(true);
+
+    if (!state.isTargetDetected) {
+      showNotification('❌ No target in crosshair', 'info');
+      return;
+    }
+
+    if (state.debugInfo.playerMatches.length === 0) {
+      showNotification('🎯 Missed! No player detected', 'info');
+      return;
+    }
+
+    // Find the closest matching player
+    const closestMatch = state.debugInfo.playerMatches.reduce((prev, current) => 
+      prev.distance < current.distance ? prev : current
+    );
+    
+    // Only deal damage if the match is close enough and it's an enemy player
+    if (closestMatch.distance < 30) {
+      if (closestMatch.player.team === currentPlayer.team) {
+        showNotification('⚠️ Friendly fire is not allowed!', 'error');
+        return;
       }
+      
+      if (closestMatch.player.status === 'dead') {
+        showNotification('💀 Target is already eliminated!', 'info');
+        return;
+      }
+      
+      // Emit the damage event to the server
+      if (socket && gameState.id && closestMatch.player.id) {
+        socket.emit('playerDamage', {
+          gameId: gameState.id,
+          targetPlayerId: closestMatch.player.id,
+          damage: currentPlayer.weapon.damage
+        });
+        showNotification(`🎯 Shot fired at ${closestMatch.player.name}!`, 'success');
+      }
+    } else {
+      showNotification('📏 Target too far or not clear enough', 'info');
     }
   }, [lastShotTime, socket, gameState.id, currentPlayer?.team, showNotification, playShootSound]);
 
@@ -197,6 +230,51 @@ export const GameView: React.FC<GameViewProps> = ({
     const distance = colorDistance(rgbA, rgbB);
     return distance < 30; // Increased threshold for more lenient color matching
   };
+
+  // Listen for game updates
+  useEffect(() => {
+    if (!socket) return;
+
+    // Listen for health updates
+    socket.on('playerHealthUpdate', (data: { playerId: string; health: number }) => {
+      if (data.playerId === currentPlayer?.id) {
+        setPlayerHealth(data.health);
+        if (data.health <= 20) {
+          showNotification('⚠️ Low health!', 'error');
+        }
+      }
+    });
+
+    // Listen for score updates
+    socket.on('playerScoreUpdate', (data: { playerId: string; points: number }) => {
+      if (data.playerId === currentPlayer?.id) {
+        setPlayerScore(data.points);
+        showNotification('🎯 Score updated!', 'success');
+      }
+    });
+
+    // Listen for damage taken
+    socket.on('playerDamaged', (data: { targetPlayerId: string; damage: number; attackerName: string }) => {
+      if (data.targetPlayerId === currentPlayer?.id) {
+        showNotification(`💥 Hit by ${data.attackerName}! (-${data.damage} HP)`, 'error');
+        new Audio('/sounds/hit.wav').play().catch(console.error);
+      }
+    });
+
+    return () => {
+      socket.off('playerHealthUpdate');
+      socket.off('playerScoreUpdate');
+      socket.off('playerDamaged');
+    };
+  }, [socket, currentPlayer?.id, showNotification]);
+
+  // Update player stats when current player changes
+  useEffect(() => {
+    if (currentPlayer) {
+      setPlayerHealth(currentPlayer.health);
+      setPlayerScore(currentPlayer.points || 0);
+    }
+  }, [currentPlayer]);
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-black">
