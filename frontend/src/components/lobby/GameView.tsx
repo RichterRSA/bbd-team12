@@ -65,7 +65,7 @@ export const GameView: React.FC<GameViewProps> = ({
 
     // Calculate color difference
     const distance = colorDistance(rgbA, rgbB);
-    return distance < 95; // Increased threshold for more lenient color matching
+    return distance < 60; // Increased threshold for more lenient color matching
   };
 
   // Function to determine crosshair color based on pose detection and color matching
