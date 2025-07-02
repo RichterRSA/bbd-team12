@@ -10,6 +10,8 @@ import QrScanner from "qr-scanner";
 import { 
   requestCameraPermission, 
   drawDetections,
+  isPersonInCrosshair,
+  triggerVibration,
 } from "../../utils/poseDetection";
 import { setupQrScannerWithWebcam, createGameQrHandlers } from "../../utils/qrCodeScanning";
 //import { drawCrosshair, isPersonInCrosshair, triggerVibration } from "../../utils/poseDetection";
