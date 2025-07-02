@@ -317,12 +317,12 @@ export class ColorScanner {
     
     // Only return a match if the distance is below a certain threshold
     // Lab color space distances: ~2.3 is just noticeable, ~5 is clearly different, >10 is significantly different
-    const MATCH_THRESHOLD = 30; // Adjust based on testing
+    // Using a more lenient threshold to accommodate muted colors
+    const MATCH_THRESHOLD = 50; // Increased threshold for muted colors
     
-    if (closestPlayer && minDistance <= MATCH_THRESHOLD) {
-      return closestPlayer;
+    if (closestPlayer) {
+      return closestPlayer; // Return the closest match regardless of distance
     } else {
-      // Return null if no good matches are found
       return null;
     }
   }
@@ -577,17 +577,18 @@ export const normalizeLighting = (r: number, g: number, b: number): { r: number;
   // More conservative brightness normalization
   let normalizedV = v;
   
-  // Only slightly boost very dark colors
-  if (v < 25) {
-    normalizedV = Math.min(v * 1.3, 40);
+  // Preserve the original value more for mid-range colors
+  if (v < 20) {
+    // Only boost very dark colors
+    normalizedV = Math.min(v * 1.2, 35);
   }
-  // Only slightly reduce very bright colors
-  else if (v > 90) {
-    normalizedV = Math.max(v * 0.95, 85);
+  else if (v > 95) {
+    // Only reduce very bright colors
+    normalizedV = Math.max(v * 0.97, 90);
   }
-  // Leave mid-range values mostly alone
   else {
-    normalizedV = Math.min(v * 1.05, 95);
+    // Leave mid-range values almost completely alone
+    normalizedV = v;
   }
   
   // Convert back to RGB
@@ -714,49 +715,39 @@ export const analyzeImageData = (data: ImageData): {color: string, confidence: n
     // Skip transparent or very transparent pixels
     if (a < 220) continue;
     
-    // Filter out likely overlay graphics (bright red dots from pose detection)
+    // Filter out only the most obvious overlay graphics
     // Check for bright red pixels that are likely from the pose overlay
-    if (r > 200 && g < 100 && b < 100) {
+    if (r > 230 && g < 50 && b < 50) {
       // This looks like a bright red overlay dot, skip it
       continue;
     }
     
-    // Also filter out other bright, highly saturated colors that might be overlays
-    const maxComponent = Math.max(r, g, b);
-    const minComponent = Math.min(r, g, b);
-    const componentDiff = maxComponent - minComponent;
-    
-    // If one color component is much higher than others, it might be an overlay
-    if (maxComponent > 220 && componentDiff > 150) {
-      continue;
-    }
-    
-    // Calculate various color properties for better filtering
+    // Calculate color properties for filtering
     const brightness = (r + g + b) / 3;
     const maxRgb = Math.max(r, g, b);
     const minRgb = Math.min(r, g, b);
     const saturation = maxRgb === 0 ? 0 : (maxRgb - minRgb) / maxRgb;
     const contrast = maxRgb - minRgb;
     
-    // More sophisticated filtering to avoid lighting artifacts:
+    // More lenient filtering to allow muted colors:
     
-    // 1. Skip extreme brightness values (overexposed/underexposed areas)
-    if (brightness < 30 || brightness > 220) continue;
+    // 1. Skip only extreme brightness values
+    if (brightness < 20 || brightness > 235) continue;
     
-    // 2. Skip pixels with very low contrast (flat lighting areas)
-    if (contrast < 20 && brightness > 60 && brightness < 180) continue;
+    // 2. Skip only very flat lighting areas
+    if (contrast < 10 && brightness > 40 && brightness < 200) continue;
     
-    // 3. For very bright areas, require higher saturation to avoid white balance issues
-    if (brightness > 170 && saturation < 0.2) continue;
+    // 3. For bright areas, be more lenient with saturation
+    if (brightness > 180 && saturation < 0.1) continue;
     
-    // 4. For darker areas, be more lenient with saturation (dark clothing can appear desaturated)
-    if (brightness < 90 && saturation < 0.08 && contrast < 15) continue;
-    
-    // 5. Skip obvious shadow areas (low brightness with low saturation)
-    if (brightness < 50 && saturation < 0.15) continue;
-    
-    // 6. Skip obvious highlight areas (very bright with low saturation)
-    if (brightness > 190 && saturation < 0.25) continue;
+    // 4. Allow very desaturated colors for normal brightness ranges
+    if (brightness >= 50 && brightness <= 180) {
+      // Accept all colors in the normal brightness range, regardless of saturation
+      // This allows muted and pastel colors to be detected
+    } else if (saturation < 0.05) {
+      // Only filter out extremely desaturated colors in extreme brightness ranges
+      continue;
+    }
     
     rgbSamples.push({ r, g, b });
   }
