@@ -136,10 +136,12 @@ export const GameView: React.FC<GameViewProps> = ({
 
     const video = webcamRef.current.video;
 
-    // Check if any person is in the crosshair
-    const personInCrosshair = currentPoses.some(pose => 
-      isPersonInCrosshair(pose, video.videoWidth, video.videoHeight, 80)
-    );
+    // Check if any person is in the crosshair with high confidence
+    const personInCrosshair = currentPoses.some(pose => {
+      // Ensure we have enough keypoints for reliable detection
+      const validKeypoints = pose.keypoints.filter(kp => kp.score && kp.score > 0.5);
+      return validKeypoints.length >= 5 && isPersonInCrosshair(pose, video.videoWidth, video.videoHeight, 80);
+    });
 
     if (!personInCrosshair) {
       return { 
@@ -235,9 +237,13 @@ export const GameView: React.FC<GameViewProps> = ({
     // Listen for health updates
     socket.on('playerHealthUpdate', (data: { playerId: string; health: number }) => {
       if (currentPlayer && data.playerId === currentPlayer.id) {
-        setPlayerHealth(data.health);
-        if (data.health <= 20) {
+        console.log('Health update received:', data);
+        setPlayerHealth(Math.max(0, data.health));
+        if (data.health <= 20 && data.health > 0) {
           showNotification('⚠️ Low health!', 'error');
+        }
+        if (data.health <= 0) {
+          showNotification('💀 You have been eliminated!', 'error');
         }
       }
     });
@@ -268,10 +274,26 @@ export const GameView: React.FC<GameViewProps> = ({
   // Update player stats when current player changes
   useEffect(() => {
     if (currentPlayer) {
-      setPlayerHealth(currentPlayer.health);
-      setPlayerScore(currentPlayer.points || 0);
+      setPlayerHealth(currentPlayer.health ?? 100);
+      setPlayerScore(currentPlayer.points ?? 0);
     }
   }, [currentPlayer]);
+
+  // Debug output for pose detection
+  useEffect(() => {
+    if (currentPoses.length > 0) {
+      const video = webcamRef.current?.video;
+      if (video) {
+        const state = getCrosshairState();
+        console.log('Pose detection state:', {
+          posesDetected: currentPoses.length,
+          isTargetDetected: state.isTargetDetected,
+          playerMatches: state.debugInfo.playerMatches.length,
+          closestMatchDistance: state.debugInfo.playerMatches[0]?.distance
+        });
+      }
+    }
+  }, [currentPoses, getCrosshairState]);
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-black">
@@ -327,15 +349,7 @@ export const GameView: React.FC<GameViewProps> = ({
                 </button>
               </div>
 
-              {/* Weapon Icon - Top Right */}
-              <div className="absolute top-4 right-16 bg-black/60 backdrop-blur-sm rounded-lg p-3">
-                <div className="text-white text-sm">
-                  <div className="flex items-center gap-2">
-                    <span>🔫</span>
-                    <span>Laser Gun</span>
-                  </div>
-                </div>
-              </div>
+              {/* Game UI continues */}
 
               {/* Crosshair */}
               <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none">
