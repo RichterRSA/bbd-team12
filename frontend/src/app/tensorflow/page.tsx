@@ -1,7 +1,7 @@
 "use client";
 import "@tensorflow/tfjs-backend-webgl";
 import * as poseDetection from "@tensorflow-models/pose-detection";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Webcam from "react-webcam";
 import { io, Socket } from "socket.io-client";
@@ -38,7 +38,8 @@ interface GameState {
   settings: { maxPlayers: number; gameMode: string };
 }
 
-export default function TensorFlow() {
+// Component that uses useSearchParams - must be wrapped in Suspense
+function TensorFlowContent() {
   const [model, setModel] = useState<poseDetection.PoseDetector | null>(null);
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [player, setPlayer] = useState<Player | null>(null);
@@ -524,12 +525,18 @@ export default function TensorFlow() {
           clearInterval(readyCheckInterval);
         }
       }, 500);
+      
+      // Cleanup the ready check interval when the effect unmounts
+      return () => {
+        clearInterval(readyCheckInterval);
+        if (poseInterval) clearInterval(poseInterval);
+      };
     }
     
     return () => {
       if (poseInterval) clearInterval(poseInterval);
     };
-  }, [model, gameState, player, hasCameraPermission, videoReady]);
+  }, [model, gameState, player, hasCameraPermission]); // Removed videoReady from dependencies to prevent loops
 
   // Add video readiness check function - with more detailed logging
   const checkVideoReadiness = useCallback(() => {
@@ -564,7 +571,7 @@ export default function TensorFlow() {
 
   // Check if video is ready for processing with enhanced checks
   useEffect(() => {
-    if (!webcamRef.current?.video) return;
+    if (!webcamRef.current?.video || videoReady) return; // Skip if already ready
     
     const video = webcamRef.current.video;
     
@@ -699,7 +706,7 @@ export default function TensorFlow() {
       video.removeEventListener('loadedmetadata', () => {});
       video.removeEventListener('playing', () => {});
     };
-  }, [webcamRef.current?.video]);
+  }, [hasCameraPermission, videoReady]); // Changed dependency to prevent constant re-runs
 
   // Enhanced WebcamWithRetry component that handles failures and retries
   const WebcamWithRetry = ({ onUserMedia, onError }: { onUserMedia: (stream: MediaStream) => void, onError: (err: string | DOMException) => void }) => {
@@ -1106,5 +1113,58 @@ export default function TensorFlow() {
         ></button>
       </div>
     </div>
+  );
+}
+
+// Loading component to show while Suspense is waiting
+function TensorFlowLoading() {
+  return (
+    <div style={{
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'center',
+      height: '100vh',
+      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      color: 'white',
+      fontFamily: 'Arial, sans-serif'
+    }}>
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ 
+          fontSize: '24px', 
+          marginBottom: '20px',
+          animation: 'pulse 2s infinite'
+        }}>
+          Loading Game...
+        </div>
+        <div style={{ 
+          width: '40px', 
+          height: '40px', 
+          border: '4px solid rgba(255, 255, 255, 0.3)',
+          borderTop: '4px solid white',
+          borderRadius: '50%',
+          animation: 'spin 1s linear infinite',
+          margin: '0 auto'
+        }}></div>
+      </div>
+      <style jsx>{`
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.7; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// Main component that wraps TensorFlowContent in Suspense
+export default function TensorFlow() {
+  return (
+    <Suspense fallback={<TensorFlowLoading />}>
+      <TensorFlowContent />
+    </Suspense>
   );
 }
