@@ -4,13 +4,12 @@ import * as poseDetection from "@tensorflow-models/pose-detection";
 import { useEffect, useRef, useState } from "react";
 import Webcam from "react-webcam";
 import { ready } from "@tensorflow/tfjs";
+import QrScanner from "qr-scanner";
 import { 
   requestCameraPermission, 
-  extractTorsoBox, 
-  drawTorsoBox,
   drawDetections,
-  type Coordinate 
 } from "../../utils/poseDetection";
+import { setupQrScannerWithWebcam, createSimpleQrHandler } from "../../utils/qrCodeScanning";
 
 // Function to check if person is inside the crosshair circle
 export const isPersonInCrosshair = (
@@ -287,6 +286,12 @@ export default function TensorFlow() {
 
     const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
     const [isDetecting, setIsDetecting] = useState<boolean>(false);
+    
+    // QR Code scanning state
+    const [qrCodeText, setQrCodeText] = useState<string | null>(null);
+    const [qrScanHistory, setQrScanHistory] = useState<string[]>([]);
+    const qrScannerRef = useRef<QrScanner | null>(null);
+    
     // Track FPS for debugging
     const [fps, setFps] = useState<number>(0);
     const [detectionFps, setDetectionFps] = useState<number>(0);
@@ -322,6 +327,41 @@ export default function TensorFlow() {
         }
     };
     
+    // Initialize QR Scanner when webcam is ready
+    useEffect(() => {
+        if (!webcamRef.current?.video || !hasCameraPermission) return;
+
+        const handleQrScan = createSimpleQrHandler(
+            (result) => {
+                setQrCodeText(result);
+                setQrScanHistory((prev) => [result, ...prev.slice(0, 4)]); // Keep last 5 scans
+                console.log("QR Code detected:", result);
+                
+                // Clear the QR code text after 3 seconds
+                setTimeout(() => {
+                    setQrCodeText(null);
+                }, 3000);
+            },
+            triggerVibration
+        );
+
+        const cleanup = setupQrScannerWithWebcam(
+            webcamRef,
+            {
+                onScan: handleQrScan,
+                maxScansPerSecond: 3,
+                highlightScanRegion: false,
+                highlightCodeOutline: false
+            },
+            hasCameraPermission,
+            (scanner) => {
+                qrScannerRef.current = scanner;
+            }
+        );
+
+        return cleanup;
+    }, [hasCameraPermission, webcamRef.current?.video]);
+
     // Ensure TensorFlow is ready
     useEffect(() => {
         async function ensureTfReady() {
@@ -615,6 +655,52 @@ export default function TensorFlow() {
                             </div>
                         </div>
 
+                        {/* QR Code display */}
+                        {qrCodeText && (
+                            <div style={{
+                                position: 'absolute',
+                                top: '50%',
+                                left: '50%',
+                                transform: 'translate(-50%, -50%)',
+                                background: 'rgba(0, 255, 0, 0.9)',
+                                color: 'black',
+                                padding: '10px 15px',
+                                borderRadius: '8px',
+                                fontSize: '16px',
+                                fontWeight: 'bold',
+                                zIndex: 20,
+                                boxShadow: '0 4px 8px rgba(0,0,0,0.3)'
+                            }}>
+                                📱 QR: {qrCodeText}
+                            </div>
+                        )}
+
+                        {/* QR Code history */}
+                        {qrScanHistory.length > 0 && (
+                            <div style={{
+                                position: 'absolute',
+                                top: '150px',
+                                right: '10px',
+                                background: 'rgba(0,0,0,0.8)',
+                                color: 'white',
+                                padding: '10px',
+                                borderRadius: '8px',
+                                fontSize: '11px',
+                                maxWidth: '150px'
+                            }}>
+                                <div style={{ marginBottom: '5px', fontWeight: 'bold' }}>Recent QR Scans:</div>
+                                {qrScanHistory.map((code, index) => (
+                                    <div key={index} style={{ 
+                                        marginBottom: '2px', 
+                                        opacity: 1 - (index * 0.2),
+                                        wordBreak: 'break-all'
+                                    }}>
+                                        {index + 1}. {code}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
                         {/* Center check button */}
                         <button
                             onClick={handleCenterCheck}
@@ -649,8 +735,9 @@ export default function TensorFlow() {
                     </div>
                     
                     <div style={{ marginTop: '15px' }}>
-                        <h3>MoveNet Pose Detection</h3>
+                        <h3>MoveNet Pose Detection & QR Code Scanner</h3>
                         <p>Stand in view of the camera and move inside the circular target. When you&apos;re inside the target area, press the button to make your phone vibrate. Adjust the target size using the slider.</p>
+                        <p><strong>QR Code Scanning:</strong> Point any QR code at the camera to scan it. Scanned codes will appear on screen and trigger vibration feedback. Recent scans are shown in the history panel.</p>
                         
                         {/* Status message display */}
                         {vibrationStatus && (
@@ -667,6 +754,44 @@ export default function TensorFlow() {
                                 {vibrationStatus}
                             </div>
                         )}
+                        
+                        {/* QR Code controls */}
+                        <div style={{ 
+                            marginTop: '15px',
+                            display: 'flex',
+                            gap: '10px',
+                            alignItems: 'center'
+                        }}>
+                            <button
+                                onClick={() => {
+                                    setQrCodeText(null);
+                                    setQrScanHistory([]);
+                                }}
+                                style={{
+                                    background: '#FF6B6B',
+                                    color: 'white',
+                                    border: 'none',
+                                    padding: '8px 15px',
+                                    borderRadius: '5px',
+                                    fontSize: '12px',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Clear QR Data
+                            </button>
+                            {qrCodeText && (
+                                <div style={{
+                                    padding: '5px 10px',
+                                    background: '#e8f5e8',
+                                    border: '1px solid #4CAF50',
+                                    borderRadius: '4px',
+                                    fontSize: '12px',
+                                    color: '#2E7D32'
+                                }}>
+                                    Last scan: <strong>{qrCodeText}</strong>
+                                </div>
+                            )}
+                        </div>
                         
                         <div style={{ 
                             marginTop: '10px', 

@@ -5,8 +5,10 @@ import React, { useEffect, useRef, useState } from "react";
 import Webcam from "react-webcam";
 import * as poseDetection from "@tensorflow-models/pose-detection";
 import { io, Socket } from "socket.io-client";
-import { drawCrosshair, drawDetections, isPersonInCrosshair, triggerVibration } from "../tensorflow/page";
+import { drawCrosshair, isPersonInCrosshair, triggerVibration } from "../tensorflow/page";
 import QrScanner from "qr-scanner";
+import { drawDetections } from "@/utils/poseDetection";
+import { setupQrScannerWithWebcam, createThrottledQrHandler, createGameQrHandlers } from "@/utils/qrCodeScanning";
 
 interface Player {
   id: string;
@@ -42,7 +44,6 @@ export default function PlayerView() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const lastShotTimeRef = useRef<number>(0);
-  const lastItemScanTimeRef = useRef<number>(0);
   const qrScannerRef = useRef<QrScanner | null>(null);
 
   // Initialize Socket.IO and TensorFlow model
@@ -80,88 +81,35 @@ export default function PlayerView() {
   useEffect(() => {
     if (!webcamRef.current?.video || !hasCameraPermission) return;
 
-    const video = webcamRef.current.video;
-    
-    // Wait for video to be ready
-    const initQrScanner = () => {
-      if (video.readyState >= 2) { // HAVE_CURRENT_DATA
-        qrScannerRef.current = new QrScanner(video, (result) => {
-          console.log("QR Code detected:", result);
-          setQrCodeText(result.data);
-          handleQrCodeScan(result.data);
-        }, {
-          returnDetailedScanResult: true,
-          highlightScanRegion: false,
-          highlightCodeOutline: false,
-          maxScansPerSecond: 5
-        });
-        
-        qrScannerRef.current.start().catch((error) => {
-          console.error("Failed to start QR scanner:", error);
-        });
-      } else {
-        video.addEventListener('loadeddata', initQrScanner, { once: true });
+    const qrHandlers = createGameQrHandlers(
+      gameState,
+      player,
+      socketRef,
+      setNotifications,
+      triggerVibration
+    );
+
+    const throttledHandler = createThrottledQrHandler(qrHandlers.handleGenericScan, 2000);
+
+    const cleanup = setupQrScannerWithWebcam(
+      webcamRef,
+      {
+        onScan: (result) => {
+          setQrCodeText(result);
+          throttledHandler(result);
+        },
+        maxScansPerSecond: 5,
+        highlightScanRegion: false,
+        highlightCodeOutline: false
+      },
+      hasCameraPermission,
+      (scanner) => {
+        qrScannerRef.current = scanner;
       }
-    };
+    );
 
-    initQrScanner();
-
-    return () => {
-      qrScannerRef.current?.stop();
-      qrScannerRef.current?.destroy();
-    };
-  }, [hasCameraPermission, webcamRef.current?.video]);
-
-  // Handle QR code scanning logic
-  const handleQrCodeScan = (result: string) => {
-    if (!gameState || !player || !socketRef.current) return;
-
-    const now = Date.now();
-    if (now - lastItemScanTimeRef.current <= 2000) return; // Throttle scans
-
-    if (player.status === "dead" && result !== "revive") {
-      socketRef.current.emit("notification", "Cannot scan items: You are dead");
-      return;
-    }
-
-    if (["pistol", "rifle", "sniper"].includes(result) && player.status === "alive") {
-      const weapons = [
-        { type: "Pistol", damage: 10, cost: 0 },
-        { type: "Rifle", damage: 20, cost: 0 },
-        { type: "Sniper", damage: 50, cost: 0 }
-      ];
-      const weapon = weapons.find((w) => w.type.toLowerCase() === result);
-      if (weapon) {
-        socketRef.current.emit("purchaseWeapon", {
-          gameId: gameState.id,
-          playerId: socketRef.current.id,
-          weapon
-        });
-        setNotifications((prev) => [...prev, `Scanned ${result} weapon`].slice(-3));
-        triggerVibration();
-        new Audio("/sounds/powerup.wav").play().catch((e) => console.error("Sound error:", e));
-      }
-    } else if (result === "treasure" && player.status === "alive") {
-      socketRef.current.emit("collectTreasure", {
-        gameId: gameState.id,
-        playerId: socketRef.current.id,
-        item: result
-      });
-      setNotifications((prev) => [...prev, `Scanned treasure`].slice(-3));
-      triggerVibration();
-      new Audio("/sounds/lasershot.mp3").play().catch((e) => console.error("Sound error:", e));
-    } else if (result === "revive" && player.status === "dead") {
-      socketRef.current.emit("revivePlayer", {
-        gameId: gameState.id,
-        playerId: socketRef.current.id
-      });
-      setNotifications((prev) => [...prev, `Scanned revive`].slice(-3));
-      triggerVibration();
-      new Audio("/sounds/lasershot.mp3").play().catch((e) => console.error("Sound error:", e));
-    }
-    
-    lastItemScanTimeRef.current = now;
-  };
+    return cleanup;
+  }, [hasCameraPermission, webcamRef.current?.video, gameState, player]);
 
   // Handle Socket.IO events
   useEffect(() => {
