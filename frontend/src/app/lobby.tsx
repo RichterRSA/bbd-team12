@@ -1,5 +1,6 @@
 "use client";
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import io, { Socket } from 'socket.io-client';
 import Webcam from "react-webcam";
 import * as tf from '@tensorflow/tfjs';
@@ -7,7 +8,7 @@ import '@tensorflow/tfjs-backend-webgl';
 import * as poseDetection from '@tensorflow-models/pose-detection';
 import { 
   Users, Play, Plus, Crown, RefreshCw, AlertCircle, Wifi, WifiOff, 
-  ArrowLeft, Shield, Zap, MessageSquare, Settings, LogOut, UserPlus, Camera, X
+  ArrowLeft, Shield, Zap, MessageSquare, Settings, LogOut, UserPlus, Camera, X, Eye
 } from 'lucide-react';
 import {
   requestCameraPermission,
@@ -61,6 +62,8 @@ interface GameJoinedData {
 }
 
 const Lobby = () => {
+  const router = useRouter();
+  
   // State
   const [socket, setSocket] = useState<Socket | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected' | 'connecting'>('connecting');
@@ -425,6 +428,10 @@ const Lobby = () => {
     setTimeout(() => setIsSubmittingColor(false), 1000);
   }, [socket, gameId]);
 
+  const handleGoToSpectator = useCallback(() => {
+    router.push('/spectator');
+  }, [router]);
+
   // Color detection function using computer vision and pose detection
   const analyzeShirtColor = useCallback(async () => {
     if (!webcamRef.current?.video || !poseModel) {
@@ -637,9 +644,16 @@ const Lobby = () => {
               handleRefreshGames();
             }}
             disabled={connectionStatus !== 'connected'}
-            className="w-full flex justify-center items-center px-4 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-md hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] font-medium"
+            className="w-full flex justify-center items-center px-4 py-3 mb-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-md hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] font-medium"
           >
             <Users className="mr-2" /> Join Existing Game
+          </button>
+          
+          <button
+            onClick={handleGoToSpectator}
+            className="w-full flex justify-center items-center px-4 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-md hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] font-medium"
+          >
+            <Eye className="mr-2" /> Spectate Games
           </button>
         </div>
       </>
