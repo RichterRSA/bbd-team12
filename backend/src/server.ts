@@ -125,6 +125,32 @@ function removePlayerFromGames(socketId: string): void {
   }
 }
 
+// Format color to ensure it's in a consistent format (RGB string)
+function formatColorValue(color: any): string {
+  if (!color) return '';
+  
+  if (typeof color === 'object') {
+    // If it's an RGB object
+    if (color.r !== undefined && color.g !== undefined && color.b !== undefined) {
+      return `rgb(${color.r},${color.g},${color.b})`;
+    }
+    
+    // If it has a color property
+    if (color.color) {
+      return formatColorValue(color.color);
+    }
+    
+    // Just stringify it
+    try {
+      return JSON.stringify(color);
+    } catch (e) {
+      return String(color);
+    }
+  }
+  
+  return String(color);
+}
+
 // Socket.IO event handlers
 io.on('connection', (socket: Socket) => {
   console.log(`🟢 New client connected: ${socket.id}`);
@@ -374,13 +400,16 @@ io.on('connection', (socket: Socket) => {
     }
   });
 
-  socket.on('submitColorConfirmation', (data: { gameId: string; targetPlayerId: string; detectedColor: string }) => {
+  socket.on('submitColorConfirmation', (data: { gameId: string; targetPlayerId: string; detectedColor: string | any }) => {
     try {
       const game = games[data.gameId];
       if (!game || game.status !== 'confirming-colors' || !game.confirmationPhase) {
         socket.emit('error', 'Game not in color confirmation phase');
         return;
       }
+      
+      // Format the color consistently
+      data.detectedColor = formatColorValue(data.detectedColor);
       
       const confirmingPlayer = game.players.find(p => p.id === socket.id);
       const targetPlayer = game.players.find(p => p.id === data.targetPlayerId);
@@ -419,7 +448,7 @@ io.on('connection', (socket: Socket) => {
         const consensusColor = Object.entries(colorCounts)
           .reduce((a, b) => colorCounts[a[0]] > colorCounts[b[0]] ? a : b)[0];
         
-        targetPlayer.shirtColor = consensusColor;
+        targetPlayer.shirtColor = formatColorValue(consensusColor);
         targetPlayer.isConfirmed = true;
         
         console.log(`✅ Consensus reached for ${targetPlayer.name}: ${consensusColor}`);

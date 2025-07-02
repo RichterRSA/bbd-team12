@@ -203,23 +203,6 @@ const Lobby = () => {
       return 'RGB color';
     }
     
-    // Check if it's already in RGB format
-    if (color.startsWith('rgb(')) {
-      return color;
-    }
-    
-    // Try to parse it if it looks like a JSON string
-    if (color.startsWith('{') && color.endsWith('}')) {
-      try {
-        const parsed = JSON.parse(color);
-        if (parsed.r !== undefined && parsed.g !== undefined && parsed.b !== undefined) {
-          return `rgb(${parsed.r},${parsed.g},${parsed.b})`;
-        }
-      } catch (e) {
-        // Parsing failed, continue
-      }
-    }
-    
     return color;
   };
   
@@ -1461,7 +1444,7 @@ const Lobby = () => {
                               <div 
                                 className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white`}
                                 style={{ backgroundColor: player.shirtColor }}
-                                title={`Confirmed shirt color: ${formatColorDisplay(player.shirtColor)}`}
+                                title={`Confirmed shirt color: ${player.shirtColor}`}
                               />
                             )}
                           </div>
@@ -1469,7 +1452,7 @@ const Lobby = () => {
                             <span>{player.name}</span>
                             {player.isConfirmed && player.shirtColor && (
                               <div className="text-xs text-gray-400">
-                                Shirt: {formatColorDisplay(player.shirtColor)}
+                                Shirt: {player.shirtColor}
                               </div>
                             )}
                           </div>
@@ -1514,7 +1497,7 @@ const Lobby = () => {
                               <div 
                                 className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white`}
                                 style={{ backgroundColor: player.shirtColor }}
-                                title={`Confirmed shirt color: ${formatColorDisplay(player.shirtColor)}`}
+                                title={`Confirmed shirt color: ${player.shirtColor}`}
                               />
                             )}
                           </div>
@@ -1522,7 +1505,7 @@ const Lobby = () => {
                             <span>{player.name}</span>
                             {player.isConfirmed && player.shirtColor && (
                               <div className="text-xs text-gray-400">
-                                Shirt: {formatColorDisplay(player.shirtColor)}
+                                Shirt: {player.shirtColor}
                               </div>
                             )}
                           </div>

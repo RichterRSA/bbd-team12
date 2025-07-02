@@ -15,11 +15,17 @@ export interface AveragedColorResult {
   confidence: number;
   sampleCount: number;
   detectionDuration: number;
+  matchedPlayer?: {
+    id: string;
+    name: string;
+    distance: number;
+  };
 }
 
 export interface ColorScannerConfig {
   scanDuration: number;
   sampleInterval: number;
+  playerColors?: Array<{ id: string; name: string; color: string; rgb?: { r: number; g: number; b: number } }>;
 }
 
 export class ColorScanner {
@@ -61,6 +67,41 @@ export class ColorScanner {
   }
 
   /**
+   * Update player colors for matching
+   */
+  updatePlayerColors(playerColors: Array<{ id: string; name: string; color: string; rgb?: { r: number; g: number; b: number } }>) {
+    this.config.playerColors = playerColors;
+    
+    // Convert color names to RGB values if they don't already have RGB
+    this.config.playerColors.forEach(player => {
+      if (!player.rgb) {
+        player.rgb = this.colorNameToRgb(player.color);
+      }
+    });
+  }
+
+  /**
+   * Convert color name to RGB value
+   */
+  private colorNameToRgb(colorName: string): { r: number; g: number; b: number } {
+    // Default color map for common colors
+    const colorMap: Record<string, { r: number; g: number; b: number }> = {
+      'red': { r: 220, g: 50, b: 50 },
+      'blue': { r: 50, g: 50, b: 220 },
+      'green': { r: 50, g: 180, b: 50 },
+      'yellow': { r: 220, g: 220, b: 50 },
+      'purple': { r: 150, g: 50, b: 200 },
+      'orange': { r: 255, g: 165, b: 0 },
+      'pink': { r: 255, g: 105, b: 180 },
+      'white': { r: 240, g: 240, b: 240 },
+      'black': { r: 20, g: 20, b: 20 },
+      'gray': { r: 128, g: 128, b: 128 }
+    };
+
+    return colorMap[colorName.toLowerCase()] || { r: 128, g: 128, b: 128 };
+  }
+
+  /**
    * Sample color from the current video frame
    */
   private async sampleColor(): Promise<ColorSample | null> {
@@ -79,19 +120,43 @@ export class ColorScanner {
         return null;
       }
 
-      // Extract color from torso region
-      const colorResult = extractTorsoColor(poses[0], this.videoElement, 0.3);
-      if (colorResult) {
-        // Get raw RGB values from the torso area for averaging
-        const rgbResult = await this.getRawTorsoRGB(poses[0], this.videoElement);
+      // Extract raw RGB values from the torso area
+      const rgbResult = await this.getRawTorsoRGB(poses[0], this.videoElement);
+      if (!rgbResult) return null;
+      
+      // Match against player colors if available, otherwise use standard categorization
+      let colorName: string | null = null;
+      let confidence = 0.8; // Default confidence
+      
+      if (this.config.playerColors && this.config.playerColors.length > 0) {
+        const match = this.findClosestPlayerColor(rgbResult);
+        if (match) {
+          colorName = match.color;
+          // Adjust confidence based on match distance
+          // Lower distance = higher confidence
+          confidence = Math.max(0.3, 1.0 - (match.distance / 100));
+        } else {
+          // No good match found, return null
+          return null;
+        }
+      } else {
+        // Use standard categorization if no player colors are available
+        const colorResult = extractTorsoColor(poses[0], this.videoElement, 0.3);
+        if (!colorResult) return null;
         
-        return {
-          color: colorResult.color,
-          confidence: colorResult.confidence,
-          timestamp: Date.now(),
-          rgb: rgbResult || { r: 128, g: 128, b: 128 } // fallback
-        };
+        colorName = colorResult.color;
+        confidence = colorResult.confidence;
       }
+      
+      // If no color name could be determined, return null
+      if (!colorName) return null;
+      
+      return {
+        color: colorName,
+        confidence: confidence,
+        timestamp: Date.now(),
+        rgb: rgbResult
+      };
     } catch (error) {
       console.error("Error sampling color:", error);
     }
@@ -161,6 +226,107 @@ export class ColorScanner {
     };
   }
 
+  /**
+   * Calculate Euclidean distance between two RGB colors
+   * Lower values mean colors are more similar
+   */
+  private colorDistance(color1: { r: number; g: number; b: number }, color2: { r: number; g: number; b: number }): number {
+    // Convert to Lab color space for more perceptually accurate color comparison
+    const lab1 = this.rgbToLab(color1.r, color1.g, color1.b);
+    const lab2 = this.rgbToLab(color2.r, color2.g, color2.b);
+    
+    // Calculate Euclidean distance in Lab color space
+    const deltaL = lab1.l - lab2.l;
+    const deltaA = lab1.a - lab2.a;
+    const deltaB = lab1.b - lab2.b;
+    
+    return Math.sqrt(deltaL * deltaL + deltaA * deltaA + deltaB * deltaB);
+  }
+  
+  /**
+   * Convert RGB to Lab color space for better perceptual color matching
+   */
+  private rgbToLab(r: number, g: number, b: number): { l: number; a: number; b: number } {
+    // First convert RGB to XYZ
+    r /= 255;
+    g /= 255;
+    b /= 255;
+    
+    r = r > 0.04045 ? Math.pow((r + 0.055) / 1.055, 2.4) : r / 12.92;
+    g = g > 0.04045 ? Math.pow((g + 0.055) / 1.055, 2.4) : g / 12.92;
+    b = b > 0.04045 ? Math.pow((b + 0.055) / 1.055, 2.4) : b / 12.92;
+    
+    r *= 100;
+    g *= 100;
+    b *= 100;
+    
+    const x = r * 0.4124 + g * 0.3576 + b * 0.1805;
+    const y = r * 0.2126 + g * 0.7152 + b * 0.0722;
+    const z = r * 0.0193 + g * 0.1192 + b * 0.9505;
+    
+    // Then convert XYZ to Lab
+    const xRef = 95.047;
+    const yRef = 100.0;
+    const zRef = 108.883;
+    
+    let xNorm = x / xRef;
+    let yNorm = y / yRef;
+    let zNorm = z / zRef;
+    
+    xNorm = xNorm > 0.008856 ? Math.pow(xNorm, 1/3) : (7.787 * xNorm) + (16 / 116);
+    yNorm = yNorm > 0.008856 ? Math.pow(yNorm, 1/3) : (7.787 * yNorm) + (16 / 116);
+    zNorm = zNorm > 0.008856 ? Math.pow(zNorm, 1/3) : (7.787 * zNorm) + (16 / 116);
+    
+    return {
+      l: (116 * yNorm) - 16,
+      a: 500 * (xNorm - yNorm),
+      b: 200 * (yNorm - zNorm)
+    };
+  }
+  
+  /**
+   * Find the closest matching player color
+   */
+  private findClosestPlayerColor(
+    rgb: { r: number; g: number; b: number }
+  ): { playerId: string; playerName: string; color: string; distance: number } | null {
+    if (!this.config.playerColors || this.config.playerColors.length === 0) {
+      // Fallback to standard categorization if no player colors available
+      const colorName = categorizeColor(rgb.r, rgb.g, rgb.b);
+      return { playerId: '', playerName: '', color: colorName, distance: 0 };
+    }
+    
+    let closestPlayer: { playerId: string; playerName: string; color: string; distance: number } | null = null;
+    let minDistance = Infinity;
+    
+    for (const player of this.config.playerColors) {
+      if (!player.rgb) continue;
+      
+      const distance = this.colorDistance(rgb, player.rgb);
+      
+      if (distance < minDistance) {
+        minDistance = distance;
+        closestPlayer = {
+          playerId: player.id,
+          playerName: player.name,
+          color: player.color,
+          distance
+        };
+      }
+    }
+    
+    // Only return a match if the distance is below a certain threshold
+    // Lab color space distances: ~2.3 is just noticeable, ~5 is clearly different, >10 is significantly different
+    const MATCH_THRESHOLD = 30; // Adjust based on testing
+    
+    if (closestPlayer && minDistance <= MATCH_THRESHOLD) {
+      return closestPlayer;
+    } else {
+      // Return null if no good matches are found
+      return null;
+    }
+  }
+  
   /**
    * Start color scanning
    */
@@ -249,20 +415,62 @@ export class ColorScanner {
     const avgG = Math.round(totalG / this.colorSamples.length);
     const avgB = Math.round(totalB / this.colorSamples.length);
 
-    // Count color occurrences for dominant color
-    const colorCounts: { [key: string]: number } = {};
+    // Instead of just counting color names, match each sample to a player color
+    const playerColorMatches: { [key: string]: { count: number; distance: number } } = {};
+    
+    // Process each sample individually to match against player colors
+    let validMatches = 0; // Count how many samples had valid matches
+    
     this.colorSamples.forEach(sample => {
-      colorCounts[sample.color] = (colorCounts[sample.color] || 0) + 1;
+      const match = this.findClosestPlayerColor(sample.rgb);
+      if (match) {
+        validMatches++;
+        if (!playerColorMatches[match.color]) {
+          playerColorMatches[match.color] = { count: 0, distance: 0 };
+        }
+        playerColorMatches[match.color].count++;
+        playerColorMatches[match.color].distance += match.distance;
+      }
     });
+    
+    // If we have too few valid matches, consider it a failure
+    const MIN_VALID_MATCH_RATIO = 0.3; // At least 30% of samples must match
+    if (validMatches < this.colorSamples.length * MIN_VALID_MATCH_RATIO) {
+      if (this.onError) {
+        this.onError("No consistent color match found. The person may not be wearing a color that matches any player.");
+      }
+      // Return with some minimal information - the caller will handle this
+      return {
+        dominantColor: '',
+        averageRgb: { r: avgR, g: avgG, b: avgB },
+        confidence: 0,
+        sampleCount: this.colorSamples.length,
+        detectionDuration: this.scanStartTime ? Date.now() - this.scanStartTime : this.config.scanDuration,
+        matchedPlayer: undefined
+      };
+    }
 
-    // Find dominant color
+    // Find dominant color based on frequency and average distance
     let dominantColor = '';
-    let maxCount = 0;
-    for (const [color, count] of Object.entries(colorCounts)) {
-      if (count > maxCount) {
-        maxCount = count;
+    let maxScore = -Infinity;
+    
+    for (const [color, data] of Object.entries(playerColorMatches)) {
+      // Calculate average distance for this color match
+      const avgDistance = data.distance / data.count;
+      
+      // Score = frequency - distance penalty (higher is better)
+      // This prioritizes colors that appear often and have low distance
+      const score = data.count - (avgDistance / 10); 
+      
+      if (score > maxScore) {
+        maxScore = score;
         dominantColor = color;
       }
+    }
+    
+    // If no dominant color was found despite having matches, something is wrong
+    if (!dominantColor && Object.keys(playerColorMatches).length > 0) {
+      console.error("Logical error: Had player color matches but no dominant color was selected");
     }
 
     // Calculate average confidence
@@ -271,12 +479,34 @@ export class ColorScanner {
     // Calculate detection duration
     const detectionDuration = this.scanStartTime ? Date.now() - this.scanStartTime : this.config.scanDuration;
 
+    // Log the color matching details for debugging
+    console.log('Player color matching:', {
+      averageRgb: { r: avgR, g: avgG, b: avgB },
+      playerColorMatches,
+      dominantColor,
+      playerColors: this.config.playerColors
+    });
+
+    // Find the player that matches the dominant color
+    let matchedPlayer = undefined;
+    if (this.config.playerColors && dominantColor) {
+      const playerMatch = this.config.playerColors.find(p => p.color === dominantColor);
+      if (playerMatch && playerColorMatches[dominantColor]) {
+        matchedPlayer = {
+          id: playerMatch.id,
+          name: playerMatch.name,
+          distance: playerColorMatches[dominantColor].distance / playerColorMatches[dominantColor].count
+        };
+      }
+    }
+
     return {
       dominantColor,
       averageRgb: { r: avgR, g: avgG, b: avgB },
       confidence: avgConfidence,
       sampleCount: this.colorSamples.length,
-      detectionDuration
+      detectionDuration,
+      matchedPlayer
     };
   }
 
