@@ -297,12 +297,9 @@ export const GameView: React.FC<GameViewProps> = ({
                   // Only show if the distance is within an acceptable range
                   if (closestMatch.distance < 30) {
                     return (
-                      <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex flex-col items-center">
-                        <div className="bg-green-500 text-black px-4 py-2 rounded-full text-sm font-bold animate-pulse mb-1">
+                      <div className="absolute top-20 left-1/2 transform -translate-x-1/2">
+                        <div className="bg-green-500 text-black px-4 py-2 rounded-full text-sm font-bold animate-pulse">
                           Target Acquired: {closestMatch.player.name}
-                        </div>
-                        <div className="text-xs text-gray-300">
-                          Match confidence: {Math.round((1 - closestMatch.distance / 30) * 100)}%
                         </div>
                       </div>
                     );
@@ -311,25 +308,7 @@ export const GameView: React.FC<GameViewProps> = ({
                 return null;
               })()}
 
-              {/* Debug Information Overlay */}
-              {(() => {
-                const state = getCrosshairState();
-                return state.debugInfo.detectedColor && (
-                  <div className="absolute left-4 bottom-4 bg-black/80 backdrop-blur-sm rounded-lg p-3 text-white text-xs font-mono">
-                    <div>Detected Color: {state.debugInfo.detectedColor}</div>
-                    <div className="mt-2">Player Colors:</div>
-                    {state.debugInfo.playerMatches.map((match, index) => (
-                      <div key={index} className="flex items-center gap-2 mt-1">
-                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: match.player.team }}></div>
-                        <span>{match.player.name} ({match.player.team})</span>
-                        <span className={match.match ? 'text-green-400' : 'text-red-400'}>
-                          Distance: {Math.round(match.distance)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                );
-              })()}
+              {/* Target UI elements end */}
             </div>
             
             {/* Pose detection overlay */}
