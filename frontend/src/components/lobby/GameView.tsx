@@ -104,17 +104,17 @@ export const GameView: React.FC<GameViewProps> = ({
       };
     }
 
-    // Analyze color matches with all players
+    // Analyze color matches with all players' shirt colors
     const playerMatches = gameState.players?.map(player => {
-      // Convert team name to RGB color (simple mapping)
-      const teamColor = player.team === 'red' ? 'rgb(255, 0, 0)' : 'rgb(0, 0, 255)';
-      const match = isColorMatch(colorResult.color, teamColor);
+      // Use player's confirmed shirt color if available, otherwise use team color as fallback
+      const playerColor = player.shirtColor || (player.team === 'red' ? 'rgb(220, 50, 50)' : 'rgb(50, 50, 220)');
+      const match = isColorMatch(colorResult.color, playerColor);
       
       return {
         player,
         distance: colorDistance(
           parseRgb(colorResult.color) || { r: 0, g: 0, b: 0 },
-          parseRgb(teamColor) || { r: 0, g: 0, b: 0 }
+          parseRgb(playerColor) || { r: 0, g: 0, b: 0 }
         ),
         match
       };
