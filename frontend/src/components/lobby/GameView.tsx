@@ -65,7 +65,7 @@ export const GameView: React.FC<GameViewProps> = ({
 
     // Calculate color difference
     const distance = colorDistance(rgbA, rgbB);
-    return distance < 60; // Increased threshold for more lenient color matching
+    return distance < 95; // Increased threshold for more lenient color matching
   };
 
   // Function to determine crosshair color based on pose detection and color matching
@@ -218,13 +218,26 @@ export const GameView: React.FC<GameViewProps> = ({
 
               {/* Target Detection Indicator */}
               {(() => {
-                const { isTargetDetected, color } = getCrosshairState();
-                if (isTargetDetected && color === "rgba(0, 255, 0, 0.6)") {
-                  return (
-                    <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-green-500 text-black px-4 py-2 rounded-full text-sm font-bold animate-pulse">
-                      Target Locked
-                    </div>
+                const state = getCrosshairState();
+                if (state.isTargetDetected && state.debugInfo.playerMatches.length > 0) {
+                  // Find the player with the lowest color distance
+                  const closestMatch = state.debugInfo.playerMatches.reduce((prev, current) => 
+                    prev.distance < current.distance ? prev : current
                   );
+                  
+                  // Only show if the distance is within an acceptable range
+                  if (closestMatch.distance < 95) {
+                    return (
+                      <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex flex-col items-center">
+                        <div className="bg-green-500 text-black px-4 py-2 rounded-full text-sm font-bold animate-pulse mb-1">
+                          Target Acquired: {closestMatch.player.name}
+                        </div>
+                        <div className="text-xs text-gray-300">
+                          Match confidence: {Math.round((1 - closestMatch.distance / 95) * 100)}%
+                        </div>
+                      </div>
+                    );
+                  }
                 }
                 return null;
               })()}
