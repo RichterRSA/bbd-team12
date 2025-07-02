@@ -254,6 +254,8 @@ const Lobby = () => {
       setGameState(data.gameState);
       changeScreen('lobby');
       setErrorMsg(null);
+      // Store player name in localStorage for reconnection purposes
+      localStorage.setItem('playerName', playerName);
       showNotification('Game created successfully!', 'success');
     });
 
@@ -263,11 +265,68 @@ const Lobby = () => {
       setGameState(data.gameState);
       changeScreen('lobby');
       setErrorMsg(null);
+      // Store player name in localStorage for reconnection purposes
+      localStorage.setItem('playerName', playerName);
       showNotification('Joined game successfully!', 'success');
     });
 
     socket.on('gameStateUpdate', (updatedGameState: GameState) => {
+      const wasInProgress = gameState?.status === 'in-progress';
+      const isNowInProgress = updatedGameState.status === 'in-progress';
+      
       setGameState(updatedGameState);
+      
+      // If game just started (transitioned to in-progress), redirect to game view
+      if (!wasInProgress && isNowInProgress) {
+        // Find our player in the updated game state based on our socket ID
+        const currentPlayer = updatedGameState.players.find(p => p.id === socket.id);
+        
+        // If we can't find by socket ID, try to find by name as a fallback
+        const currentPlayerName = currentPlayer?.name || playerName.trim();
+        const currentGameId = updatedGameState.id;
+        
+        // ALWAYS store the player name in localStorage before redirecting
+        // This is critical for reconnection
+        if (currentPlayerName) {
+          console.log(`Storing player name in localStorage: ${currentPlayerName}`);
+          localStorage.setItem('playerName', currentPlayerName);
+        } else {
+          console.warn('No player name available to store in localStorage');
+        }
+        
+        // Log the redirect information
+        console.log('Game started, preparing redirect with:', { 
+          currentGameId, 
+          currentPlayerName,
+          socketId: socket.id,
+          playerFound: !!currentPlayer,
+          totalPlayers: updatedGameState.players.length,
+          allPlayers: updatedGameState.players.map(p => `${p.name}(${p.id})`)
+        });
+        
+        if (currentGameId && currentPlayerName) {
+          // Set a short delay to ensure socket events are processed
+          showNotification('Game started! Redirecting to game...', 'success');
+          
+          // Set fade effect
+          setFadeScreen(true);
+          
+          setTimeout(() => {
+            // Double check localStorage is set before redirect
+            if (!localStorage.getItem('playerName') && currentPlayerName) {
+              localStorage.setItem('playerName', currentPlayerName);
+            }
+            
+            // Build the URL with both parameters
+            const redirectUrl = `/tensorflow?gameId=${currentGameId}&playerName=${encodeURIComponent(currentPlayerName)}`;
+            console.log(`Redirecting to: ${redirectUrl}`);
+            router.push(redirectUrl);
+          }, 1500);
+        } else {
+          console.error('Missing gameId or playerName for redirect:', { currentGameId, currentPlayerName });
+          showNotification('Error: Missing game information for redirect', 'error');
+        }
+      }
     });
 
     socket.on('gameList', (games: GameState[]) => {
@@ -1352,18 +1411,13 @@ const Lobby = () => {
             </div>
           </div>
           
-          {/* Game in progress overlay */}
+          {/* Game starting overlay - briefly shown before redirect */}
           {gameState.status === 'in-progress' && (
             <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center z-20 backdrop-blur-sm">
               <div className="bg-gray-900 border-2 border-green-500 rounded-lg p-6 max-w-md mx-4 text-center">
-                <h3 className="text-2xl font-bold text-green-400 mb-2">Game in Progress!</h3>
-                <p className="text-gray-300 mb-6">The game has started. Get ready for battle!</p>
-                <button
-                  onClick={() => setShowConfirmation(true)}
-                  className="px-6 py-3 bg-red-700 text-white rounded-md hover:bg-red-600 transition-all duration-200"
-                >
-                  Leave Game
-                </button>
+                <h3 className="text-2xl font-bold text-green-400 mb-2">Game Started!</h3>
+                <p className="text-gray-300 mb-6">Redirecting to game interface...</p>
+                <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-green-500 mx-auto"></div>
               </div>
             </div>
           )}
