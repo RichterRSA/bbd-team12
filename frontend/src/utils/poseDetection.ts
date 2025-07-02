@@ -3,6 +3,9 @@ import Webcam from "react-webcam";
 import { drawTorsoBox, extractBodyBoundingBox } from './torsoDetection';
 import { isPersonInCrosshair, drawCrosshair, getCrosshairTorsoColor } from './crosshairUtils';
 
+// Re-export utility functions for external use
+export { isPersonInCrosshair, drawCrosshair, getCrosshairTorsoColor };
+
 export function drawDetections(
   detections: poseDetection.Pose[], 
   canvasRef: React.RefObject<HTMLCanvasElement | null>, 

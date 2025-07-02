@@ -17,7 +17,7 @@ import {
   getColorStyle 
 } from '@/utils/colorDetection';
 import { requestCameraPermission, isMobileDevice } from '@/utils/deviceUtils';
-import { drawDetections } from '@/utils/poseDetection';
+import { drawDetections, isPersonInCrosshair, drawCrosshair } from '@/utils/poseDetection';
 
 interface Player {
   id: string;
