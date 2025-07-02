@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Camera, LogOut, Menu, Info } from 'lucide-react';
 import Webcam from "react-webcam";
 import * as poseDetection from '@tensorflow-models/pose-detection';
+import { Socket } from 'socket.io-client';
 import { isMobileDevice, requestCameraPermission } from '@/utils/deviceUtils';
 import { GameState, Player } from './types';
 import { getCrosshairTorsoColor, isPersonInCrosshair } from '@/utils/crosshairUtils';
@@ -19,6 +20,7 @@ interface GameViewProps {
   currentPoses: poseDetection.Pose[];
   setShowConfirmation: (show: boolean) => void;
   showNotification: (message: string, type: 'success' | 'info' | 'error') => void;
+  socket: Socket | null;
 }
 
 export const GameView: React.FC<GameViewProps> = ({
@@ -32,49 +34,73 @@ export const GameView: React.FC<GameViewProps> = ({
   currentPoses,
   setShowConfirmation,
   showNotification,
+  socket,
 }) => {
   const [showMenu, setShowMenu] = useState(false);
   const [showInstructions, setShowInstructions] = useState(false);
-  const [debugInfo, setDebugInfo] = useState<{
-    detectedColor: string | null;
-    playerMatches: Array<{
-      player: Player;
-      distance: number;
-      match: boolean;
-    }>;
-  }>({ detectedColor: null, playerMatches: [] });
+  const [playerHealth, setPlayerHealth] = useState(currentPlayer?.health || 100);
+  const [playerScore, setPlayerScore] = useState(currentPlayer?.points || 0);
+  const [lastShotTime, setLastShotTime] = useState(0);
+  const SHOOT_COOLDOWN = 100; // 0.1 second cooldown between shots
+  const [isShooting, setIsShooting] = useState(false);
 
-  // Function to determine if a color is close enough to be considered a match
-  const isColorMatch = (colorA: string, colorB: string) => {
-    const parseRgb = (color: string) => {
-      const match = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
-      if (match) {
-        return {
-          r: parseInt(match[1]),
-          g: parseInt(match[2]),
-          b: parseInt(match[3])
-        };
+  // Function to play the shooting sound
+  const playShootSound = useCallback(() => {
+    const audio = new Audio('/sounds/lasershot.wav');
+    audio.volume = 0.3;
+    audio.play();
+  }, []);
+
+  // Function to handle shooting
+  const handleShoot = useCallback(() => {
+    const now = Date.now();
+    if (now - lastShotTime < SHOOT_COOLDOWN) {
+      return; // Still in cooldown
+    }
+
+    const state = getCrosshairState();
+    if (state.isTargetDetected && state.debugInfo.playerMatches.length > 0) {
+      // Find the closest matching player
+      const closestMatch = state.debugInfo.playerMatches.reduce((prev, current) => 
+        prev.distance < current.distance ? prev : current
+      );
+      
+      // Only shoot if the match is close enough and it's an enemy player
+      if (closestMatch.distance < 30 && 
+          closestMatch.player.team !== currentPlayer?.team && 
+          closestMatch.player.status !== 'dead') {
+        setLastShotTime(now);
+        playShootSound();
+        setIsShooting(true);
+        
+        // Emit the damage event to the server
+        if (socket && gameState.id && closestMatch.player.id) {
+          socket.emit('playerDamage', {
+            gameId: gameState.id,
+            targetPlayerId: closestMatch.player.id
+          });
+          showNotification(`Shot fired at ${closestMatch.player.name}!`, 'info');
+        }
       }
-      return null;
-    };
+    }
+  }, [lastShotTime, socket, gameState.id, currentPlayer?.team, showNotification, playShootSound]);
 
-    const rgbA = parseRgb(colorA);
-    const rgbB = parseRgb(colorB);
+  // Add shoot animation cleanup
+  useEffect(() => {
+    if (isShooting) {
+      const timer = setTimeout(() => setIsShooting(false), 200);
+      return () => clearTimeout(timer);
+    }
+  }, [isShooting]);
 
-    if (!rgbA || !rgbB) return false;
-
-    // Calculate color difference
-    const distance = colorDistance(rgbA, rgbB);
-    return distance < 30; // Increased threshold for more lenient color matching
-  };
-
-  // Function to determine crosshair color based on pose detection and color matching
+  // Update the crosshair state logic to include shooting animation
   const getCrosshairState = useCallback(() => {
     if (!currentPoses || currentPoses.length === 0 || !webcamRef.current?.video) {
       return { 
         isTargetDetected: false, 
         color: "rgba(128, 128, 128, 0.6)",
-        debugInfo: { detectedColor: null, playerMatches: [] }
+        debugInfo: { detectedColor: null, playerMatches: [] },
+        isShooting: false
       };
     }
 
@@ -89,7 +115,8 @@ export const GameView: React.FC<GameViewProps> = ({
       return { 
         isTargetDetected: false, 
         color: "rgba(128, 128, 128, 0.6)",
-        debugInfo: { detectedColor: null, playerMatches: [] }
+        debugInfo: { detectedColor: null, playerMatches: [] },
+        isShooting: false
       };
     }
 
@@ -100,7 +127,8 @@ export const GameView: React.FC<GameViewProps> = ({
       return { 
         isTargetDetected: true, 
         color: "rgba(255, 255, 0, 0.6)",
-        debugInfo: { detectedColor: null, playerMatches: [] }
+        debugInfo: { detectedColor: null, playerMatches: [] },
+        isShooting: false
       };
     }
 
@@ -129,9 +157,10 @@ export const GameView: React.FC<GameViewProps> = ({
       debugInfo: {
         detectedColor: colorResult.color,
         playerMatches
-      }
+      },
+      isShooting
     };
-  }, [currentPoses, webcamRef, gameState.players]);
+  }, [currentPoses, webcamRef, gameState.players, isShooting]);
 
   const parseRgb = (color: string) => {
     const match = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
@@ -145,12 +174,36 @@ export const GameView: React.FC<GameViewProps> = ({
     return null;
   };
 
+  // Function to determine if a color is close enough to be considered a match
+  const isColorMatch = (colorA: string, colorB: string) => {
+    const parseRgb = (color: string) => {
+      const match = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+      if (match) {
+        return {
+          r: parseInt(match[1]),
+          g: parseInt(match[2]),
+          b: parseInt(match[3])
+        };
+      }
+      return null;
+    };
+
+    const rgbA = parseRgb(colorA);
+    const rgbB = parseRgb(colorB);
+
+    if (!rgbA || !rgbB) return false;
+
+    // Calculate color difference
+    const distance = colorDistance(rgbA, rgbB);
+    return distance < 30; // Increased threshold for more lenient color matching
+  };
+
   return (
     <div className="fixed inset-0 overflow-hidden bg-black">
       {/* Main Game View */}
       <div className="relative w-full h-full">
         {hasCameraPermission ? (
-          <div className="relative w-full h-full">
+          <div className="relative w-full h-full" onClick={handleShoot} style={{ cursor: 'crosshair' }}>
             <Webcam
               ref={webcamRef}
               audio={false}
@@ -164,9 +217,9 @@ export const GameView: React.FC<GameViewProps> = ({
             />
             
             {/* Game UI Overlays */}
-            <div className="absolute inset-0 pointer-events-none">
+            <div className="absolute inset-0">
               {/* Player Info Overlay - Top Left */}
-              <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-sm rounded-lg p-3 text-white">
+              <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-sm rounded-lg p-3 text-white pointer-events-none">
                 <div className="flex flex-col gap-2">
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full bg-green-500"></div>
@@ -175,12 +228,12 @@ export const GameView: React.FC<GameViewProps> = ({
                   <div className="flex items-center gap-4">
                     <div>
                       HP: <span className={`font-bold ${
-                        (currentPlayer?.health || 0) > 50 ? 'text-green-400' : 
-                        (currentPlayer?.health || 0) > 20 ? 'text-yellow-400' : 'text-red-400'
-                      }`}>{currentPlayer?.health || 0}</span>
+                        playerHealth > 50 ? 'text-green-400' : 
+                        playerHealth > 20 ? 'text-yellow-400' : 'text-red-400'
+                      }}`}>{playerHealth}</span>
                     </div>
                     <div>
-                      Score: <span className="font-bold text-blue-400">{currentPlayer?.points || 0}</span>
+                      Score: <span className="font-bold text-blue-400">{playerScore}</span>
                     </div>
                   </div>
                 </div>
@@ -200,21 +253,24 @@ export const GameView: React.FC<GameViewProps> = ({
               )}
 
               {/* Crosshair */}
-              {(() => {
-                const { isTargetDetected, color } = getCrosshairState();
-                return (
+              <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none">
+                <div 
+                  className={`w-32 h-32 border-4 rounded-full relative transition-all duration-200 ${
+                    isShooting ? 'scale-90' : ''
+                  }`}
+                  style={{ 
+                    borderColor: getCrosshairState().color, 
+                    backgroundColor: getCrosshairState().color.replace('0.6', '0.1'),
+                    transition: 'all 0.2s ease'
+                  }}
+                >
                   <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
-                    <div className={`w-32 h-32 border-4 rounded-full relative transition-colors duration-200`}
-                         style={{ borderColor: color, backgroundColor: color.replace('0.6', '0.1') }}>
-                      <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
-                        <div className="w-8 h-1" style={{ backgroundColor: color }}></div>
-                        <div className="w-1 h-8 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"
-                             style={{ backgroundColor: color }}></div>
-                      </div>
-                    </div>
+                    <div className="w-8 h-1" style={{ backgroundColor: getCrosshairState().color }}></div>
+                    <div className="w-1 h-8 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"
+                         style={{ backgroundColor: getCrosshairState().color }}></div>
                   </div>
-                );
-              })()}
+                </div>
+              </div>
 
               {/* Target Detection Indicator */}
               {(() => {

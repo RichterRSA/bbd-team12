@@ -978,6 +978,7 @@ const Lobby = () => {
           currentPoses={currentPoses}
           setShowConfirmation={setShowConfirmation}
           showNotification={showNotification}
+          socket={socket}
         />
       );
     }
