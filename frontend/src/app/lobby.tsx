@@ -8,18 +8,16 @@ import '@tensorflow/tfjs-backend-webgl';
 import * as poseDetection from '@tensorflow-models/pose-detection';
 import { 
   Users, Play, Plus, Crown, RefreshCw, AlertCircle, Wifi, WifiOff, 
-  ArrowLeft, Shield, Zap, MessageSquare, Settings, LogOut, UserPlus, Camera, X, Eye
+  ArrowLeft, Shield, Zap, MessageSquare, Settings, LogOut, UserPlus, Camera, X, Eye, Pause
 } from 'lucide-react';
-import {
-  requestCameraPermission,
-  extractTorsoBox,
-  extractTorsoColor,
-  categorizeColor,
-  drawDetections,
-  isMobileDevice,
-  type Coordinate
-} from '@/utils/poseDetection';
-
+import { 
+  ColorScanner, 
+  ColorSample, 
+  AveragedColorResult, 
+  getColorStyle 
+} from '@/utils/colorDetection';
+import { requestCameraPermission, isMobileDevice } from '@/utils/deviceUtils';
+import { drawDetections } from '@/utils/poseDetection';
 
 interface Player {
   id: string;
@@ -81,14 +79,29 @@ const Lobby = () => {
   const [selectedColor, setSelectedColor] = useState<string>('');
   const [isSubmittingColor, setIsSubmittingColor] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
-  const [detectedColor, setDetectedColor] = useState<string>('');
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [colorConfidence, setColorConfidence] = useState<number>(0);
+  
+  // Advanced color scanning state
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanProgress, setScanProgress] = useState(0);
+  const [colorSamples, setColorSamples] = useState<ColorSample[]>([]);
+  const [finalResult, setFinalResult] = useState<AveragedColorResult | null>(null);
+  
   const webcamRef = useRef<Webcam>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const colorScannerRef = useRef<ColorScanner | null>(null);
   const [poseModel, setPoseModel] = useState<poseDetection.PoseDetector | null>(null);
   const [currentPoses, setCurrentPoses] = useState<poseDetection.Pose[]>([]);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
+
+  // Constants for scanning
+  const SCAN_DURATION = 1000; // 1 second in milliseconds
+  const SAMPLE_INTERVAL = 50; // Sample every 50ms (20 samples per second)
+
+  // Show notification helper
+  const showNotification = useCallback((message: string, type: 'success' | 'info' | 'error') => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 4000);
+  }, []);
 
 
 
@@ -149,16 +162,16 @@ const Lobby = () => {
   // Load pose detection model and request camera permission
   useEffect(() => {
     async function initializeCV() {
-      // Ensure TensorFlow is ready
-      await tf.ready();
-      console.log("TensorFlow.js is ready");
-
-      // Request camera permission
-      const hasPermission = await requestCameraPermission(showNotification);
-      setHasCameraPermission(hasPermission);
-
-      // Load pose detection model
       try {
+        // Ensure TensorFlow is ready
+        await tf.ready();
+        console.log("TensorFlow.js is ready");
+
+        // Request camera permission
+        const hasPermission = await requestCameraPermission(showNotification);
+        setHasCameraPermission(hasPermission);
+
+        // Load pose detection model
         console.log("Loading MoveNet model...");
         const modelConfig: poseDetection.MoveNetModelConfig = {
           modelType: poseDetection.movenet.modelType.MULTIPOSE_LIGHTNING,
@@ -173,13 +186,15 @@ const Lobby = () => {
         );
         setPoseModel(model);
         console.log("MoveNet model loaded successfully");
+        showNotification("AI model loaded successfully!", "success");
       } catch (error) {
-        console.error("Error loading MoveNet model:", error);
+        console.error("Error initializing computer vision:", error);
+        showNotification("Failed to load AI model. Please refresh the page.", "error");
       }
     }
 
     initializeCV();
-  }, []);
+  }, [showNotification]);
 
   // Pose detection loop when camera is active
   useEffect(() => {
@@ -198,15 +213,6 @@ const Lobby = () => {
         });
 
         setCurrentPoses(poses);
-
-        // If we have a pose, analyze the shirt color
-        if (poses.length > 0 && isAnalyzing) {
-          const colorResult = extractTorsoColor(poses[0], video);
-          if (colorResult) {
-            setDetectedColor(colorResult.color);
-            setColorConfidence(colorResult.confidence);
-          }
-        }
       } catch (error) {
         console.error("Error detecting poses:", error);
       }
@@ -219,7 +225,7 @@ const Lobby = () => {
     return () => {
       if (detectionInterval) clearInterval(detectionInterval);
     };
-  }, [showCamera, poseModel, isAnalyzing]);
+  }, [showCamera, poseModel]);
 
   // Drawing/rendering loop for pose overlay
   useEffect(() => {
@@ -227,7 +233,7 @@ const Lobby = () => {
     
     const renderFrame = () => {
       if (currentPoses.length > 0 && showCamera) {
-        drawDetections(currentPoses, canvasRef, webcamRef);
+        drawDetections(currentPoses, canvasRef, webcamRef, true, 80);
       }
       
       renderFrameId = requestAnimationFrame(renderFrame);
@@ -243,6 +249,46 @@ const Lobby = () => {
       }
     };
   }, [currentPoses, showCamera]);
+
+  // Initialize ColorScanner when pose model and camera are ready
+  useEffect(() => {
+    if (poseModel && webcamRef.current?.video && showCamera) {
+      const videoElement = webcamRef.current.video;
+      
+      if (!colorScannerRef.current) {
+        colorScannerRef.current = new ColorScanner({
+          scanDuration: SCAN_DURATION,
+          sampleInterval: SAMPLE_INTERVAL
+        });
+      }
+      
+      colorScannerRef.current.initialize(poseModel, videoElement);
+      colorScannerRef.current.setCallbacks({
+        onProgress: (progress, samples) => {
+          setScanProgress(progress);
+          setColorSamples(samples);
+        },
+        onComplete: (result) => {
+          setIsScanning(false);
+          setFinalResult(result);
+          showNotification(`Color scanning complete! Detected: ${result.dominantColor}`, "success");
+        },
+        onError: (error) => {
+          setIsScanning(false);
+          showNotification(error, "error");
+        }
+      });
+    }
+  }, [poseModel, showCamera, SCAN_DURATION, SAMPLE_INTERVAL, showNotification]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (colorScannerRef.current) {
+        colorScannerRef.current.dispose();
+      }
+    };
+  }, []);
 
   // Socket event handlers
   useEffect(() => {
@@ -332,12 +378,6 @@ const Lobby = () => {
     }, 300);
   };
 
-  // Helper for showing notifications
-  const showNotification = (message: string, type: 'success' | 'info' | 'error') => {
-    setNotification({ message, type });
-    setTimeout(() => setNotification(null), 3000);
-  };
-
   // Action handlers
   const handleCreateGame = useCallback(() => {
     if (!socket || !playerName.trim()) {
@@ -424,7 +464,7 @@ const Lobby = () => {
     });
     setSelectedColor('');
     setShowCamera(false);
-    setDetectedColor('');
+    setFinalResult(null);
     setTimeout(() => setIsSubmittingColor(false), 1000);
   }, [socket, gameId]);
 
@@ -432,66 +472,26 @@ const Lobby = () => {
     router.push('/spectator');
   }, [router]);
 
-  // Color detection function using computer vision and pose detection
-  const analyzeShirtColor = useCallback(async () => {
-    if (!webcamRef.current?.video || !poseModel) {
-      console.log("Video or pose model not ready");
-      return null;
-    }
-
-    const video = webcamRef.current.video;
-    if (video.readyState !== 4) return null;
-
-    try {
-      // Get current pose
-      const poses = await poseModel.estimatePoses(video, {
-        flipHorizontal: false,
-        maxPoses: 1
-      });
-
-      if (poses.length === 0) {
-        console.log("No person detected");
-        return null;
-      }
-
-      // Extract color from torso region
-      const colorResult = extractTorsoColor(poses[0], video);
-      if (colorResult) {
-        setDetectedColor(colorResult.color);
-        setColorConfidence(colorResult.confidence);
-        return colorResult;
-      }
-    } catch (error) {
-      console.error("Error analyzing shirt color:", error);
-    }
-
-    return null;
-  }, [poseModel]);
-
-  // Draw pose detection overlay
-  const drawPoseOverlay = useCallback(() => {
-    if (currentPoses.length > 0 && showCamera) {
-      drawDetections(currentPoses, canvasRef, webcamRef);
-    }
-  }, [currentPoses, showCamera]);
-
-  // Update pose overlay when poses change
-  useEffect(() => {
-    if (showCamera) {
-      drawPoseOverlay();
-    }
-  }, [currentPoses, showCamera, drawPoseOverlay]);
-
-  // Start continuous color analysis using TensorFlow pose detection
-  const startColorAnalysis = useCallback(() => {
-    setIsAnalyzing(true);
+  // Start color scanning
+  const startColorScan = useCallback(() => {
+    if (isScanning || !colorScannerRef.current) return;
     
-    // The color analysis happens automatically in the pose detection loop
-    // Just need to set a timeout to stop analyzing after 10 seconds
-    setTimeout(() => {
-      setIsAnalyzing(false);
-    }, 10000);
-  }, []);
+    setIsScanning(true);
+    setScanProgress(0);
+    setColorSamples([]);
+    setFinalResult(null);
+    
+    showNotification("Starting 1-second color scan...", "info");
+    colorScannerRef.current.startScan();
+  }, [isScanning, showNotification]);
+
+  // Stop color scanning
+  const stopColorScan = useCallback(() => {
+    if (!isScanning || !colorScannerRef.current) return;
+    
+    colorScannerRef.current.stopScan();
+    setIsScanning(false);
+  }, [isScanning]);
 
   // Render connection status indicator
   const renderConnectionStatus = () => {
@@ -1006,9 +1006,7 @@ const Lobby = () => {
                   <button
                     onClick={() => {
                       setShowCamera(false);
-                      setDetectedColor('');
-                      setColorConfidence(0);
-                      setIsAnalyzing(false);
+                      if (isScanning) stopColorScan();
                     }}
                     className="absolute top-2 right-2 bg-black/60 text-white p-2 rounded-full hover:bg-black/80 transition-all"
                   >
@@ -1016,51 +1014,107 @@ const Lobby = () => {
                   </button>
                 </div>
 
-                {/* Detection results */}
-                {detectedColor && (
-                  <div className="mb-6 p-4 bg-gray-900/50 rounded-lg border">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-gray-300">Detected Color:</span>
-                      <div className="flex items-center">
-                        <div 
-                          className="w-6 h-6 rounded-full border-2 border-white mr-2"
-                          style={{ backgroundColor: detectedColor }}
-                        />
-                        <span className="text-white font-semibold capitalize">{detectedColor}</span>
+                {/* Scan Progress */}
+                {isScanning && (
+                  <div className="space-y-2 mb-4">
+                    <div className="flex justify-between text-sm text-gray-300">
+                      <span>Scanning Progress</span>
+                      <span>{Math.round(scanProgress)}%</span>
+                    </div>
+                    <div className="w-full bg-gray-700 rounded-full h-2">
+                      <div 
+                        className="bg-gradient-to-r from-green-500 to-blue-500 h-2 rounded-full transition-all duration-100"
+                        style={{ width: `${scanProgress}%` }}
+                      />
+                    </div>
+                    <div className="text-center text-sm text-gray-400">
+                      Samples collected: {colorSamples.length}
+                    </div>
+                  </div>
+                )}
+
+                {/* Results */}
+                {finalResult && (
+                  <div className="bg-gray-700/50 rounded-lg p-4 space-y-4 mb-4">
+                    <h4 className="font-semibold text-gray-300">Color Analysis Results</h4>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Color Display */}
+                      <div className="space-y-2">
+                        <h5 className="text-sm font-semibold text-gray-300">Detected Color</h5>
+                        <div className="flex items-center space-x-3">
+                          <div 
+                            className="w-12 h-12 rounded-lg border-2 border-gray-600"
+                            style={getColorStyle(finalResult.averageRgb)}
+                          />
+                          <div>
+                            <p className="font-bold text-white capitalize">{finalResult.dominantColor}</p>
+                            <p className="text-xs text-gray-400">
+                              RGB({finalResult.averageRgb.r}, {finalResult.averageRgb.g}, {finalResult.averageRgb.b})
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Statistics */}
+                      <div className="space-y-2">
+                        <h5 className="text-sm font-semibold text-gray-300">Statistics</h5>
+                        <div className="space-y-1 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">Confidence:</span>
+                            <span className="text-white">{Math.round(finalResult.confidence * 100)}%</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">Samples:</span>
+                            <span className="text-white">{finalResult.sampleCount}</span>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-300">Confidence:</span>
-                      <span className={`font-semibold ${colorConfidence > 0.5 ? 'text-green-400' : 'text-yellow-400'}`}>
-                        {Math.round(colorConfidence * 100)}%
-                      </span>
-                    </div>
+
+                    {/* Recent Samples */}
+                    {colorSamples.length > 0 && (
+                      <div>
+                        <h5 className="text-sm font-semibold text-gray-300 mb-2">Sample History</h5>
+                        <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto">
+                          {colorSamples.slice(-15).map((sample, index) => (
+                            <div
+                              key={index}
+                              className="w-6 h-6 rounded border border-gray-600 flex-shrink-0"
+                              style={getColorStyle(sample.rgb)}
+                              title={`${sample.color} - Confidence: ${Math.round(sample.confidence * 100)}%`}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
                 {/* Control buttons */}
                 <div className="space-y-3">
-                  <button
-                    onClick={startColorAnalysis}
-                    disabled={isAnalyzing}
-                    className="w-full flex justify-center items-center px-6 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-lg hover:from-blue-500 hover:to-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 font-semibold"
-                  >
-                    {isAnalyzing ? (
-                      <>
-                        <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-white mr-2"></div>
-                        Analyzing... ({Math.max(0, 10 - Math.floor((Date.now() % 10000) / 1000))}s)
-                      </>
-                    ) : (
-                      <>
-                        <Zap className="mr-2" size={20} />
-                        Analyze Color
-                      </>
-                    )}
-                  </button>
-
-                  {detectedColor && colorConfidence > 0.3 && (
+                  {!isScanning ? (
                     <button
-                      onClick={() => handleSubmitColorConfirmation(currentTarget.id, detectedColor)}
+                      onClick={startColorScan}
+                      disabled={currentPoses.length === 0}
+                      className="w-full flex justify-center items-center px-6 py-3 bg-gradient-to-r from-green-600 to-blue-600 text-white rounded-lg hover:from-green-500 hover:to-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 font-semibold"
+                    >
+                      <Play size={20} className="mr-2" />
+                      Start 1-Second Color Scan
+                    </button>
+                  ) : (
+                    <button
+                      onClick={stopColorScan}
+                      className="w-full flex justify-center items-center px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-500 transition-all duration-200 font-semibold"
+                    >
+                      <Pause size={20} className="mr-2" />
+                      Stop Scanning
+                    </button>
+                  )}
+
+                  {finalResult && finalResult.confidence > 0.3 && (
+                    <button
+                      onClick={() => handleSubmitColorConfirmation(currentTarget.id, finalResult.dominantColor)}
                       disabled={isSubmittingColor}
                       className="w-full flex justify-center items-center px-6 py-4 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:from-green-500 hover:to-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 font-semibold"
                     >
@@ -1072,7 +1126,7 @@ const Lobby = () => {
                       ) : (
                         <>
                           <Zap className="mr-2" size={20} />
-                          Confirm {detectedColor.charAt(0).toUpperCase() + detectedColor.slice(1)}
+                          Confirm {finalResult.dominantColor.charAt(0).toUpperCase() + finalResult.dominantColor.slice(1)}
                         </>
                       )}
                     </button>

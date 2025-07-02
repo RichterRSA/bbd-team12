@@ -5,18 +5,14 @@ import * as tf from '@tensorflow/tfjs';
 import '@tensorflow/tfjs-backend-webgl';
 import * as poseDetection from '@tensorflow-models/pose-detection';
 import { Camera, X, Play, AlertCircle, Pause } from 'lucide-react';
-import {
-  requestCameraPermission,
-  extractTorsoColor,
-  drawDetections,
-  isMobileDevice,
-} from '@/utils/poseDetection';
 import { 
   ColorScanner, 
   ColorSample, 
   AveragedColorResult, 
   getColorStyle 
 } from '@/utils/colorDetection';
+import { requestCameraPermission, isMobileDevice } from '@/utils/deviceUtils';
+import { drawDetections } from '@/utils/poseDetection';
 
 const LobbyV2 = () => {
   // Camera and pose detection state
