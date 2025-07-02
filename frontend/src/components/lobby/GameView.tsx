@@ -6,6 +6,7 @@ import * as poseDetection from '@tensorflow-models/pose-detection';
 import { isMobileDevice, requestCameraPermission } from '@/utils/deviceUtils';
 import { GameState, Player } from './types';
 import { getCrosshairTorsoColor, isPersonInCrosshair } from '@/utils/crosshairUtils';
+import { rgbToHsv, colorDistance } from '@/utils/colorDetection';
 
 interface GameViewProps {
   gameState: GameState;
@@ -34,11 +35,47 @@ export const GameView: React.FC<GameViewProps> = ({
 }) => {
   const [showMenu, setShowMenu] = useState(false);
   const [showInstructions, setShowInstructions] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<{
+    detectedColor: string | null;
+    playerMatches: Array<{
+      player: Player;
+      distance: number;
+      match: boolean;
+    }>;
+  }>({ detectedColor: null, playerMatches: [] });
+
+  // Function to determine if a color is close enough to be considered a match
+  const isColorMatch = (colorA: string, colorB: string) => {
+    const parseRgb = (color: string) => {
+      const match = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+      if (match) {
+        return {
+          r: parseInt(match[1]),
+          g: parseInt(match[2]),
+          b: parseInt(match[3])
+        };
+      }
+      return null;
+    };
+
+    const rgbA = parseRgb(colorA);
+    const rgbB = parseRgb(colorB);
+
+    if (!rgbA || !rgbB) return false;
+
+    // Calculate color difference
+    const distance = colorDistance(rgbA, rgbB);
+    return distance < 95; // Increased threshold for more lenient color matching
+  };
 
   // Function to determine crosshair color based on pose detection and color matching
   const getCrosshairState = useCallback(() => {
     if (!currentPoses || currentPoses.length === 0 || !webcamRef.current?.video) {
-      return { isTargetDetected: false, color: "rgba(128, 128, 128, 0.6)" }; // Default gray
+      return { 
+        isTargetDetected: false, 
+        color: "rgba(128, 128, 128, 0.6)",
+        debugInfo: { detectedColor: null, playerMatches: [] }
+      };
     }
 
     const video = webcamRef.current.video;
@@ -49,32 +86,64 @@ export const GameView: React.FC<GameViewProps> = ({
     );
 
     if (!personInCrosshair) {
-      return { isTargetDetected: false, color: "rgba(128, 128, 128, 0.6)" }; // Gray when no person in crosshair
+      return { 
+        isTargetDetected: false, 
+        color: "rgba(128, 128, 128, 0.6)",
+        debugInfo: { detectedColor: null, playerMatches: [] }
+      };
     }
 
     // Get the color of the person in crosshair
     const colorResult = getCrosshairTorsoColor(currentPoses, webcamRef, video.videoWidth, video.videoHeight, 80);
     
     if (!colorResult) {
-      return { isTargetDetected: true, color: "rgba(255, 255, 0, 0.6)" }; // Yellow if person detected but color unknown
+      return { 
+        isTargetDetected: true, 
+        color: "rgba(255, 255, 0, 0.6)",
+        debugInfo: { detectedColor: null, playerMatches: [] }
+      };
     }
 
-    // Check if the detected color matches any team color
-    const isValidTarget = gameState.players?.some(player => {
-      // Convert both colors to simple color names (e.g., "red", "blue")
-      const teamColor = player.team.toLowerCase();
-      const detectedColor = colorResult.color.toLowerCase();
+    // Analyze color matches with all players
+    const playerMatches = gameState.players?.map(player => {
+      // Convert team name to RGB color (simple mapping)
+      const teamColor = player.team === 'red' ? 'rgb(255, 0, 0)' : 'rgb(0, 0, 255)';
+      const match = isColorMatch(colorResult.color, teamColor);
       
-      // Check if the detected color contains the team color name
-      // This handles cases like "rgb(255,0,0)" matching with "red"
-      return detectedColor.includes(teamColor) || teamColor.includes(detectedColor);
-    });
+      return {
+        player,
+        distance: colorDistance(
+          parseRgb(colorResult.color) || { r: 0, g: 0, b: 0 },
+          parseRgb(teamColor) || { r: 0, g: 0, b: 0 }
+        ),
+        match
+      };
+    }) || [];
+
+    // Check if any player color matches
+    const hasPlayerMatch = playerMatches.some(pm => pm.match);
 
     return {
       isTargetDetected: true,
-      color: isValidTarget ? "rgba(0, 255, 0, 0.6)" : "rgba(255, 255, 0, 0.6)" // Green if player detected, yellow if unknown person
+      color: hasPlayerMatch ? "rgba(0, 255, 0, 0.6)" : "rgba(255, 255, 0, 0.6)", // Green if player detected, yellow if unknown person
+      debugInfo: {
+        detectedColor: colorResult.color,
+        playerMatches
+      }
     };
   }, [currentPoses, webcamRef, gameState.players]);
+
+  const parseRgb = (color: string) => {
+    const match = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+    if (match) {
+      return {
+        r: parseInt(match[1]),
+        g: parseInt(match[2]),
+        b: parseInt(match[3])
+      };
+    }
+    return null;
+  };
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-black">
@@ -158,6 +227,26 @@ export const GameView: React.FC<GameViewProps> = ({
                   );
                 }
                 return null;
+              })()}
+
+              {/* Debug Information Overlay */}
+              {(() => {
+                const state = getCrosshairState();
+                return state.debugInfo.detectedColor && (
+                  <div className="absolute left-4 bottom-4 bg-black/80 backdrop-blur-sm rounded-lg p-3 text-white text-xs font-mono">
+                    <div>Detected Color: {state.debugInfo.detectedColor}</div>
+                    <div className="mt-2">Player Colors:</div>
+                    {state.debugInfo.playerMatches.map((match, index) => (
+                      <div key={index} className="flex items-center gap-2 mt-1">
+                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: match.player.team }}></div>
+                        <span>{match.player.name} ({match.player.team})</span>
+                        <span className={match.match ? 'text-green-400' : 'text-red-400'}>
+                          Distance: {Math.round(match.distance)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                );
               })()}
             </div>
             

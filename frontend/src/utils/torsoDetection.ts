@@ -203,7 +203,6 @@ export const drawTorsoBox = (
 
   if (minX === Infinity || minY === Infinity || 
       maxX === -Infinity || maxY === -Infinity) {
-    console.warn("Could not determine valid bounding box bounds");
     return null;
   }
 

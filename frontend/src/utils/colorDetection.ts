@@ -697,6 +697,59 @@ export const categorizeColor = (r: number, g: number, b: number): string => {
   return 'gray';
 };
 
+// Function to calculate color distance between two RGB colors
+export const colorDistance = (color1: { r: number; g: number; b: number }, color2: { r: number; g: number; b: number }): number => {
+  // Convert to Lab color space for more perceptually accurate color comparison
+  const lab1 = rgbToLab(color1.r, color1.g, color1.b);
+  const lab2 = rgbToLab(color2.r, color2.g, color2.b);
+  
+  // Calculate Euclidean distance in Lab color space
+  const deltaL = lab1.l - lab2.l;
+  const deltaA = lab1.a - lab2.a;
+  const deltaB = lab1.b - lab2.b;
+  
+  return Math.sqrt(deltaL * deltaL + deltaA * deltaA + deltaB * deltaB);
+};
+
+// Helper function to convert RGB to Lab color space
+const rgbToLab = (r: number, g: number, b: number): { l: number; a: number; b: number } => {
+  // First convert RGB to XYZ
+  r /= 255;
+  g /= 255;
+  b /= 255;
+  
+  r = r > 0.04045 ? Math.pow((r + 0.055) / 1.055, 2.4) : r / 12.92;
+  g = g > 0.04045 ? Math.pow((g + 0.055) / 1.055, 2.4) : g / 12.92;
+  b = b > 0.04045 ? Math.pow((b + 0.055) / 1.055, 2.4) : b / 12.92;
+  
+  r *= 100;
+  g *= 100;
+  b *= 100;
+  
+  const x = r * 0.4124 + g * 0.3576 + b * 0.1805;
+  const y = r * 0.2126 + g * 0.7152 + b * 0.0722;
+  const z = r * 0.0193 + g * 0.1192 + b * 0.9505;
+  
+  // Then convert XYZ to Lab
+  const xRef = 95.047;
+  const yRef = 100.0;
+  const zRef = 108.883;
+  
+  const xNorm = x / xRef;
+  const yNorm = y / yRef;
+  const zNorm = z / zRef;
+  
+  const fx = xNorm > 0.008856 ? Math.pow(xNorm, 1/3) : (7.787 * xNorm) + (16 / 116);
+  const fy = yNorm > 0.008856 ? Math.pow(yNorm, 1/3) : (7.787 * yNorm) + (16 / 116);
+  const fz = zNorm > 0.008856 ? Math.pow(zNorm, 1/3) : (7.787 * zNorm) + (16 / 116);
+  
+  return {
+    l: (116 * fy) - 16,
+    a: 500 * (fx - fy),
+    b: 200 * (fy - fz)
+  };
+};
+
 // Helper function to analyze image data for color detection
 export const analyzeImageData = (data: ImageData): {color: string, confidence: number} | null => {
   // Improved color analysis with better filtering and statistical approach
