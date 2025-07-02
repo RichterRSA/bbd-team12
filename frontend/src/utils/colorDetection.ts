@@ -197,15 +197,14 @@ export class ColorScanner {
       maxY = Math.max(maxY, keypoint.y);
     });
 
-    // Sample center area of torso
-    const centerX = (minX + maxX) / 2;
-    const centerY = (minY + maxY) / 2;
-    const sampleSize = 20; // 20x20 pixel sample area
+    // Sample entire torso area
+    const width = maxX - minX;
+    const height = maxY - minY;
+    const x = Math.max(0, Math.min(minX, video.videoWidth - width));
+    const y = Math.max(0, Math.min(minY, video.videoHeight - height));
     
-    const x = Math.max(0, Math.min(centerX - sampleSize/2, video.videoWidth - sampleSize));
-    const y = Math.max(0, Math.min(centerY - sampleSize/2, video.videoHeight - sampleSize));
-    
-    const imageData = tempCtx.getImageData(x, y, sampleSize, sampleSize);
+    // Get color data from the entire torso region
+    const imageData = tempCtx.getImageData(x, y, width, height);
     const data = imageData.data;
     
     // Calculate average RGB
@@ -705,188 +704,44 @@ export const analyzeImageData = (data: ImageData): {color: string, confidence: n
   const rgbSamples: { r: number; g: number; b: number }[] = [];
   const pixels = data.data;
 
-  // First pass: collect valid color samples with more sophisticated filtering
-  for (let i = 0; i < pixels.length; i += 16) { // Sample every 4th pixel for better performance
+  // Simple sampling of all pixels
+  for (let i = 0; i < pixels.length; i += 4) {
     const r = pixels[i];
     const g = pixels[i + 1];
     const b = pixels[i + 2];
-    const a = pixels[i + 3]; // Alpha channel
+    const a = pixels[i + 3];
     
-    // Skip transparent or very transparent pixels
-    if (a < 220) continue;
-    
-    // Filter out only the most obvious overlay graphics
-    // Check for bright red pixels that are likely from the pose overlay
-    if (r > 230 && g < 50 && b < 50) {
-      // This looks like a bright red overlay dot, skip it
-      continue;
-    }
-    
-    // Calculate color properties for filtering
-    const brightness = (r + g + b) / 3;
-    const maxRgb = Math.max(r, g, b);
-    const minRgb = Math.min(r, g, b);
-    const saturation = maxRgb === 0 ? 0 : (maxRgb - minRgb) / maxRgb;
-    const contrast = maxRgb - minRgb;
-    
-    // More lenient filtering to allow muted colors:
-    
-    // 1. Skip only extreme brightness values
-    if (brightness < 20 || brightness > 235) continue;
-    
-    // 2. Skip only very flat lighting areas
-    if (contrast < 10 && brightness > 40 && brightness < 200) continue;
-    
-    // 3. For bright areas, be more lenient with saturation
-    if (brightness > 180 && saturation < 0.1) continue;
-    
-    // 4. Allow very desaturated colors for normal brightness ranges
-    if (brightness >= 50 && brightness <= 180) {
-      // Accept all colors in the normal brightness range, regardless of saturation
-      // This allows muted and pastel colors to be detected
-    } else if (saturation < 0.05) {
-      // Only filter out extremely desaturated colors in extreme brightness ranges
-      continue;
-    }
+    // Only skip fully transparent pixels
+    if (a === 0) continue;
     
     rgbSamples.push({ r, g, b });
   }
 
-  // If we don't have enough samples, try with more lenient filtering
-  if (rgbSamples.length < 20) {
-    rgbSamples.length = 0; // Clear array
-    for (let i = 0; i < pixels.length; i += 12) { // Denser sampling
-      const r = pixels[i];
-      const g = pixels[i + 1];
-      const b = pixels[i + 2];
-      const a = pixels[i + 3];
-      
-      if (a < 180) continue;
-      const brightness = (r + g + b) / 3;
-      const maxRgb = Math.max(r, g, b);
-      const minRgb = Math.min(r, g, b);
-      const contrast = maxRgb - minRgb;
-      
-      // More lenient filtering for difficult lighting conditions
-      if (brightness < 20 || brightness > 240) continue;
-      if (contrast < 8 && brightness > 60 && brightness < 180) continue;
-      
-      rgbSamples.push({ r, g, b });
-    }
-  }
+  // Simply calculate the average RGB values
+  let totalR = 0, totalG = 0, totalB = 0;
+  let count = rgbSamples.length;
 
-  // Apply statistical filtering to remove outliers
-  if (rgbSamples.length > 10) {
-    // Calculate median RGB values to identify outliers
-    const rValues = rgbSamples.map(s => s.r).sort((a, b) => a - b);
-    const gValues = rgbSamples.map(s => s.g).sort((a, b) => a - b);
-    const bValues = rgbSamples.map(s => s.b).sort((a, b) => a - b);
-    
-    const medianR = rValues[Math.floor(rValues.length / 2)];
-    const medianG = gValues[Math.floor(gValues.length / 2)];
-    const medianB = bValues[Math.floor(bValues.length / 2)];
-    
-    // Filter out samples that are too far from the median (outliers)
-    const filteredSamples = rgbSamples.filter(sample => {
-      const rDiff = Math.abs(sample.r - medianR);
-      const gDiff = Math.abs(sample.g - medianG);
-      const bDiff = Math.abs(sample.b - medianB);
-      const totalDiff = rDiff + gDiff + bDiff;
-      
-      // Allow more variation for darker colors, less for lighter colors
-      const brightness = (sample.r + sample.g + sample.b) / 3;
-      const tolerance = brightness < 100 ? 80 : 60;
-      
-      return totalDiff < tolerance;
-    });
-    
-    // Use filtered samples if we still have enough data
-    if (filteredSamples.length >= Math.min(10, rgbSamples.length * 0.3)) {
-      rgbSamples.length = 0;
-      rgbSamples.push(...filteredSamples);
-    }
-  }
-
-  // Categorize each sample with weighted voting and lighting normalization
-  const colorVotes: { [key: string]: { count: number; confidence: number } } = {};
-  
   rgbSamples.forEach(sample => {
-    // Apply conservative lighting normalization for better color detection
-    const normalized = normalizeLighting(sample.r, sample.g, sample.b);
-    const { h, s, v } = rgbToHsv(normalized.r, normalized.g, normalized.b);
-    const color = categorizeColor(normalized.r, normalized.g, normalized.b);
-    
-    // Calculate confidence based on color properties
-    let confidence = 1.0;
-    
-    // Higher confidence for more saturated colors (easier to classify)
-    confidence *= Math.min(1.0, (s + 20) / 100);
-    
-    // Higher confidence for colors in the middle brightness range (after normalization)
-    if (v > 30 && v < 80) {
-      confidence *= 1.2;
-    } else if (v < 25 || v > 85) {
-      confidence *= 0.7;
-    }
-    
-    // Be more conservative with red confidence to avoid false positives
-    if (color === 'red') {
-      confidence *= 0.8; // Reduce red confidence
-      // Require higher saturation for red
-      if (s < 40) confidence *= 0.5;
-    } else if (color === 'blue' || color === 'green') {
-      confidence *= 1.1;
-    } else if (color === 'yellow' || color === 'orange' || color === 'purple') {
-      confidence *= 1.05;
-    }
-    
-    // Penalize very low saturation colors (except for true grays/whites/blacks)
-    if (s < 15 && color !== 'white' && color !== 'black' && color !== 'gray') {
-      confidence *= 0.4;
-    }
-    
-    // Initialize or update vote
-    if (!colorVotes[color]) {
-      colorVotes[color] = { count: 0, confidence: 0 };
-    }
-    
-    colorVotes[color].count += 1;
-    colorVotes[color].confidence += confidence;
+    totalR += sample.r;
+    totalG += sample.g;
+    totalB += sample.b;
   });
 
-  // Find the most confident color (not just most common)
-  let dominantColor = '';
-  let maxScore = 0;
-  
-  for (const [color, vote] of Object.entries(colorVotes)) {
-    // Score combines frequency and average confidence
-    const avgConfidence = vote.confidence / vote.count;
-    const score = vote.count * avgConfidence;
-    
-    if (score > maxScore) {
-      maxScore = score;
-      dominantColor = color;
-    }
-  }
+  if (count === 0) return null;
 
-  const totalPixels = rgbSamples.length;
-  const winningVote = colorVotes[dominantColor];
-  const confidence = totalPixels > 0 && winningVote ? 
-    (winningVote.count / totalPixels) * (winningVote.confidence / winningVote.count) : 0;
+  const avgR = Math.round(totalR / count);
+  const avgG = Math.round(totalG / count);
+  const avgB = Math.round(totalB / count);
 
-  // Enhanced logging for better debugging
-  console.log('Enhanced color analysis:', {
-    totalSamples: totalPixels,
-    dominantColor,
-    confidence: Math.round(confidence * 100) + '%',
-    colorBreakdown: Object.entries(colorVotes).map(([color, vote]) => ({
-      color,
-      count: vote.count,
-      avgConfidence: Math.round((vote.confidence / vote.count) * 100) / 100,
-      score: Math.round((vote.count * (vote.confidence / vote.count)) * 100) / 100,
-      percentage: Math.round((vote.count / totalPixels) * 100) + '%'
-    })).sort((a, b) => b.score - a.score)
+  // Use the raw average color
+  const color = `rgb(${avgR},${avgG},${avgB})`;
+  const confidence = 1.0; // Always return full confidence since we're using raw values
+
+  // Log the raw color values
+  console.log('Raw color analysis:', {
+    averageColor: `rgb(${avgR},${avgG},${avgB})`,
+    sampleCount: count
   });
 
-  return { color: dominantColor, confidence };
+  return { color: `rgb(${avgR},${avgG},${avgB})`, confidence: 1.0 };
 };

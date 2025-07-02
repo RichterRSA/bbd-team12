@@ -1361,7 +1361,7 @@ const Lobby = () => {
                     </button>
                   )}
 
-                  {finalResult && finalResult.confidence > 0.3 && (
+                  {finalResult && finalResult.confidence > 0.1 && (
                     <button
                       onClick={() => handleSubmitColorConfirmation(currentTarget.id, finalResult.dominantColor)}
                       disabled={isSubmittingColor}
