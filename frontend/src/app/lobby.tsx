@@ -373,7 +373,28 @@ const Lobby = () => {
       const shouldRender = showCamera || (gameState?.status === 'in-progress');
       
       if (currentPoses.length > 0 && shouldRender) {
+        // Use the utility function which has proper mobile-optimized coordinate transformation
         drawDetections(currentPoses, canvasRef, webcamRef, true, 80);
+        
+        // Draw crosshair if in game mode
+        if (gameState?.status === 'in-progress') {
+          const video = webcamRef.current?.video;
+          if (video) {
+            // Check if any person is in crosshair for targeting feedback
+            const personInCrosshair = currentPoses.some(pose => 
+              isPersonInCrosshair(pose, video.videoWidth, video.videoHeight, 80)
+            );
+            
+            // Draw crosshair with green color when targeting someone
+            drawCrosshair(
+              canvasRef, 
+              webcamRef, 
+              80, 
+              personInCrosshair, 
+              personInCrosshair ? "rgba(0, 255, 0, 0.9)" : "rgba(255, 255, 255, 0.7)"
+            );
+          }
+        }
       }
       
       renderFrameId = requestAnimationFrame(renderFrame);

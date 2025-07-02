@@ -99,26 +99,41 @@ export const drawCrosshair = (
     const displayWidth = video.clientWidth;
     const displayHeight = video.clientHeight;
     
-    // Calculate scaling factors accounting for objectFit: 'cover'
+    // Validate dimensions
+    if (!videoWidth || !videoHeight || !displayWidth || !displayHeight) {
+        console.warn("Invalid dimensions in drawCrosshair:", { videoWidth, videoHeight, displayWidth, displayHeight });
+        return;
+    }
+    
+    // Calculate proper scaling for object-fit: cover behavior (same as in drawDetections)
     const videoAspectRatio = videoWidth / videoHeight;
     const displayAspectRatio = displayWidth / displayHeight;
     
-    let scale: number;
-    if (videoAspectRatio > displayAspectRatio) {
-        // Video is wider than display - video will be scaled by height
-        scale = displayHeight / videoHeight;
+    let actualScale: number;
+    let offsetX: number = 0, offsetY: number = 0;
+
+    if (Math.abs(videoAspectRatio - displayAspectRatio) > 0.01) {
+        if (videoAspectRatio > displayAspectRatio) {
+            // Video is wider, so it's scaled by height and cropped horizontally
+            actualScale = displayHeight / videoHeight;
+            offsetX = (displayWidth - videoWidth * actualScale) / 2;
+        } else {
+            // Video is taller, so it's scaled by width and cropped vertically
+            actualScale = displayWidth / videoWidth;
+            offsetY = (displayHeight - videoHeight * actualScale) / 2;
+        }
     } else {
-        // Video is taller than display - video will be scaled by width
-        scale = displayWidth / videoWidth;
+        // Aspect ratios match, simple scaling
+        actualScale = displayWidth / videoWidth; // Could also use displayHeight / videoHeight
     }
 
     // Calculate center of the display
     const centerX = displayWidth / 2;
     const centerY = displayHeight / 2;
 
-    // Scale the radius based on camera resolution (480px height) to display coordinates
-    // The crosshairRadius is already calculated based on 480px camera height, so we scale it to display
-    const scaledRadius = crosshairRadius * scale;
+    // Scale the radius to match the display coordinates
+    // The crosshairRadius is based on camera resolution, so scale it properly
+    const scaledRadius = crosshairRadius * actualScale;
 
     // Draw outer circle
     ctx.strokeStyle = isPersonInside ? color : "rgba(255, 255, 255, 0.8)";

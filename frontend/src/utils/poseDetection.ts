@@ -45,36 +45,60 @@ export function drawDetections(
     return;
   }
 
-  // Set canvas size to match the displayed video
-  canvas.width = displayWidth;
-  canvas.height = displayHeight;
+  // Set canvas size to match the displayed video exactly
+  if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
+    canvas.width = displayWidth;
+    canvas.height = displayHeight;
+  }
 
-  // Calculate scaling factors accounting for objectFit: 'cover'
-  // With 'cover', the video is scaled to fill the container while maintaining aspect ratio
+  // Calculate scaling factors to convert from video resolution to display resolution
+  const scaleX = displayWidth / videoWidth;
+  const scaleY = displayHeight / videoHeight;
+
+  // Handle object-fit scaling (video might be cropped or letterboxed)
   const videoAspectRatio = videoWidth / videoHeight;
   const displayAspectRatio = displayWidth / displayHeight;
   
-  let scaleX: number, scaleY: number;
+  let actualScaleX: number, actualScaleY: number;
   let offsetX: number = 0, offsetY: number = 0;
-  
-  if (videoAspectRatio > displayAspectRatio) {
-    // Video is wider than display - video will be scaled by height and cropped horizontally
-    const scale = displayHeight / videoHeight;
-    scaleX = scale;
-    scaleY = scale;
-    offsetX = (displayWidth - videoWidth * scale) / 2;
+
+  // Calculate proper scaling for object-fit: cover behavior
+  if (Math.abs(videoAspectRatio - displayAspectRatio) > 0.01) {
+    if (videoAspectRatio > displayAspectRatio) {
+      // Video is wider, so it's scaled by height and cropped horizontally
+      const scale = displayHeight / videoHeight;
+      actualScaleX = scale;
+      actualScaleY = scale;
+      offsetX = (displayWidth - videoWidth * scale) / 2;
+    } else {
+      // Video is taller, so it's scaled by width and cropped vertically  
+      const scale = displayWidth / videoWidth;
+      actualScaleX = scale;
+      actualScaleY = scale;
+      offsetY = (displayHeight - videoHeight * scale) / 2;
+    }
   } else {
-    // Video is taller than display - video will be scaled by width and cropped vertically  
-    const scale = displayWidth / videoWidth;
-    scaleX = scale;
-    scaleY = scale;
-    offsetY = (displayHeight - videoHeight * scale) / 2;
+    // Aspect ratios match, simple scaling
+    actualScaleX = scaleX;
+    actualScaleY = scaleY;
   }
 
   // Validate scaling factors
-  if (!isFinite(scaleX) || !isFinite(scaleY) || scaleX <= 0 || scaleY <= 0) {
-    console.error("Invalid scaling factors in drawDetections:", { scaleX, scaleY });
+  if (!isFinite(actualScaleX) || !isFinite(actualScaleY) || actualScaleX <= 0 || actualScaleY <= 0) {
+    console.error("Invalid scaling factors in drawDetections:", { actualScaleX, actualScaleY });
     return;
+  }
+
+  // Debug logging for mobile devices
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  if (isMobile) {
+    console.log("Mobile device detected - drawing debug info:", {
+      videoWidth, videoHeight, displayWidth, displayHeight,
+      videoAspectRatio: videoAspectRatio.toFixed(3),
+      displayAspectRatio: displayAspectRatio.toFixed(3),
+      actualScaleX: actualScaleX.toFixed(3), actualScaleY: actualScaleY.toFixed(3),
+      offsetX: offsetX.toFixed(1), offsetY: offsetY.toFixed(1)
+    });
   }
 
   // Clear previous drawings
@@ -108,9 +132,9 @@ export function drawDetections(
       const x = keypoint.x;
       const y = keypoint.y;
 
-      // Scale the coordinates to match the displayed video size with objectFit: 'cover' accounting
-      const scaledX = x * scaleX + offsetX;
-      const scaledY = y * scaleY + offsetY;
+      // Scale the coordinates to match the displayed video size with proper object-fit: cover accounting
+      const scaledX = keypoint.x * actualScaleX + offsetX;
+      const scaledY = keypoint.y * actualScaleY + offsetY;
 
       // Validate scaled coordinates
       if (!isFinite(scaledX) || !isFinite(scaledY)) {
