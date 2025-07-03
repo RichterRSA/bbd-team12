@@ -8,6 +8,7 @@ import { isMobileDevice, requestCameraPermission } from '@/utils/deviceUtils';
 import { GameState, Player } from './types';
 import { getCrosshairTorsoColor, isPersonInCrosshair } from '@/utils/crosshairUtils';
 import { rgbToHsv, colorDistance } from '@/utils/colorDetection';
+import { useRouter } from 'next/navigation';
 
 interface GameViewProps {
   gameState: GameState;
@@ -21,6 +22,15 @@ interface GameViewProps {
   setShowConfirmation: (show: boolean) => void;
   showNotification: (message: string, type: 'success' | 'info' | 'error') => void;
   socket: Socket | null;
+}
+
+// Add new interface for game won data
+interface GameWonData {
+  winningTeam: 'red' | 'blue';
+  topPlayer: {
+    name: string;
+    points: number;
+  };
 }
 
 export const GameView: React.FC<GameViewProps> = ({
@@ -48,6 +58,8 @@ export const GameView: React.FC<GameViewProps> = ({
   const [scoreDelta, setScoreDelta] = useState<number | null>(null);
   const [respawnCountdown, setRespawnCountdown] = useState<number | null>(null);
   const [topPlayer, setTopPlayer] = useState<Player | null>(null);
+  const [gameWonData, setGameWonData] = useState<GameWonData | null>(null);
+  const router = useRouter();
 
   // Function to find the top scoring player
   const getTopPlayer = useCallback(() => {
@@ -464,11 +476,27 @@ export const GameView: React.FC<GameViewProps> = ({
       }
     });
 
+    // Add game won event handler
+    socket.on('gameWon', (data: GameWonData) => {
+      console.log('Game won event received:', data);
+      setGameWonData(data);
+      
+      // Play victory/defeat sound
+      try {
+        const audio = new Audio('/sounds/powerup.wav');
+        audio.volume = 0.7;
+        audio.play().catch(console.error);
+      } catch (error) {
+        console.error('Error playing game end sound:', error);
+      }
+    });
+
     return () => {
       socket.off('playerHealthUpdate');
       socket.off('playerScoreUpdate');
       socket.off('playerDamaged');
       socket.off('playerEliminated');
+      socket.off('gameWon');
     };
   }, [socket, currentPlayer?.id, showNotification]);
 
@@ -587,13 +615,55 @@ export const GameView: React.FC<GameViewProps> = ({
     );
   };
 
+  // Victory/Defeat Screen Component
+  const GameEndScreen = () => {
+    if (!gameWonData || !currentPlayer) return null;
+
+    const isVictory = currentPlayer.team === gameWonData.winningTeam;
+
+    return (
+      <div className="fixed inset-0 z-[9999] bg-black/95 backdrop-blur-md flex items-center justify-center">
+        <div className="text-center text-white p-8 space-y-8 max-w-2xl w-full">
+          <h1 className={`text-8xl font-bold animate-pulse mb-8 ${
+            isVictory ? 'text-green-500' : 'text-red-500'
+          }`}>
+            {isVictory ? 'VICTORY!' : 'DEFEAT'}
+          </h1>
+          
+          <div className="text-2xl space-y-4">
+            <div className="mb-8">
+              <h2 className="text-3xl font-semibold mb-4">Top Player</h2>
+              <p className="text-yellow-400">{gameWonData.topPlayer.name}</p>
+              <p className="text-yellow-400">{gameWonData.topPlayer.points} points</p>
+            </div>
+            
+            <div className="mb-8">
+              <h2 className="text-3xl font-semibold mb-4">Your Score</h2>
+              <p className="text-blue-400">{currentPlayer.points} points</p>
+            </div>
+            
+            <button
+              onClick={() => router.push('/')}
+              className="px-8 py-4 bg-blue-600 hover:bg-blue-700 rounded-lg text-2xl font-semibold transition-colors"
+            >
+              Return to Home
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="fixed inset-0 overflow-hidden bg-black">
+      {/* Show GameEndScreen when game is won */}
+      {gameWonData && <GameEndScreen />}
+      
       {/* Death Screen */}
-      {currentPlayer?.status === 'dead' && <DeathScreen />}
+      {currentPlayer?.status === 'dead' && !gameWonData && <DeathScreen />}
 
       {/* Only render game content if player is alive */}
-      {(!currentPlayer || currentPlayer.status !== 'dead') && (
+      {(!currentPlayer || (currentPlayer.status !== 'dead' && !gameWonData)) && (
         <div className="relative w-full h-full">
           {/* Move notifications to top of screen */}
           <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50">

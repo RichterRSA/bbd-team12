@@ -789,7 +789,7 @@ socket.on('playerDamage', (data: { gameId: string; targetPlayerId: string; attac
         if (!attacker || attacker.status === 'dead') {
             return;
         }
-        
+
         if (targetPlayer.status === 'dead') {
             socket.emit('notification', {
                 message: '💀 Target is already eliminated!',
@@ -865,6 +865,36 @@ socket.on('playerDamage', (data: { gameId: string; targetPlayerId: string; attac
                     }
                 }, 10000); // 10 second respawn timer
             }
+        }
+
+        // Check if all players on a team are eliminated
+        const redTeam = game.players.filter(p => p.team === 'red');
+        const blueTeam = game.players.filter(p => p.team === 'blue');
+        
+        const redTeamEliminated = redTeam.every(p => p.status === 'dead');
+        const blueTeamEliminated = blueTeam.every(p => p.status === 'dead');
+        
+        if (redTeamEliminated || blueTeamEliminated) {
+            // Get the winning team
+            const winningTeam = redTeamEliminated ? 'blue' : 'red';
+            
+            // Find the top scoring player
+            const topPlayer = game.players.reduce((highest, current) => 
+                current.points > highest.points ? current : highest
+            , game.players[0]);
+            
+            // Emit game won event to all players
+            io.to(game.id).emit('gameWon', {
+                winningTeam,
+                topPlayer: {
+                    name: topPlayer.name,
+                    points: topPlayer.points
+                }
+            });
+            
+            // Update game status
+            game.status = 'finished';
+            broadcastGameList();
         }
 
         logGameState(game.id);
