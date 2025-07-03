@@ -48,7 +48,55 @@ export const GameView: React.FC<GameViewProps> = ({
   const [scoreDelta, setScoreDelta] = useState<number | null>(null);
   const [respawnCountdown, setRespawnCountdown] = useState<number | null>(null);
   const [topPlayer, setTopPlayer] = useState<Player | null>(null);
-  const [notifications, setNotifications] = useState<{ message: string; type: 'success' | 'info' | 'error' }[]>([]);
+
+  // Function to find the top scoring player
+  const getTopPlayer = useCallback(() => {
+    if (!gameState.players || gameState.players.length === 0) return null;
+    return [...gameState.players].sort((a, b) => b.points - a.points)[0];
+  }, [gameState.players]);
+
+  useEffect(() => {
+    setTopPlayer(getTopPlayer());
+  }, [gameState.players, getTopPlayer]);
+
+  // Update socket event listeners for player death and respawn
+  useEffect(() => {
+    if (!socket) return;
+
+    socket.on('playerDeath', (data: { playerId: string; lives: number }) => {
+      if (currentPlayer && data.playerId === currentPlayer.id) {
+        if (data.lives > 0) {
+          setRespawnCountdown(10);
+          // Start countdown
+          const interval = setInterval(() => {
+            setRespawnCountdown(prev => {
+              if (prev === null || prev <= 1) {
+                clearInterval(interval);
+                return null;
+              }
+              return prev - 1;
+            });
+          }, 1000);
+        }
+      }
+    });
+
+    socket.on('playerRespawn', (data: { playerId: string }) => {
+      if (currentPlayer && data.playerId === currentPlayer.id) {
+        setRespawnCountdown(null);
+        showNotification('🔄 You have respawned!', 'success');
+        // Strong vibration for respawn
+        if (navigator.vibrate) {
+          navigator.vibrate([100, 50, 100]);
+        }
+      }
+    });
+
+    return () => {
+      socket.off('playerDeath');
+      socket.off('playerRespawn');
+    };
+  }, [socket, currentPlayer, showNotification]);
 
   // Function to play the shooting sound
   const playShootSound = useCallback(() => {
@@ -392,94 +440,13 @@ export const GameView: React.FC<GameViewProps> = ({
       }
     });
 
-    // Update socket event listeners for player death and respawn
-    socket.on('playerDeath', (data: { playerId: string; lives: number }) => {
-      if (currentPlayer && data.playerId === currentPlayer.id) {
-        if (data.lives > 0) {
-          setRespawnCountdown(10);
-          // Start countdown
-          const interval = setInterval(() => {
-            setRespawnCountdown(prev => {
-              if (prev === null || prev <= 1) {
-                clearInterval(interval);
-                return null;
-              }
-              return prev - 1;
-            });
-          }, 1000);
-        }
-      }
-    });
-
-    socket.on('playerRespawn', (data: { playerId: string }) => {
-      if (currentPlayer && data.playerId === currentPlayer.id) {
-        setRespawnCountdown(null);
-        showNotification('🔄 You have respawned!', 'success');
-        // Strong vibration for respawn
-        if (navigator.vibrate) {
-          navigator.vibrate([100, 50, 100]);
-        }
-      }
-    });
-
     return () => {
       socket.off('playerHealthUpdate');
       socket.off('playerScoreUpdate');
       socket.off('playerDamaged');
       socket.off('playerEliminated');
-      socket.off('playerDeath');
-      socket.off('playerRespawn');
     };
   }, [socket, currentPlayer?.id, showNotification]);
-
-  // Function to find the top scoring player
-  const getTopPlayer = useCallback(() => {
-    if (!gameState.players || gameState.players.length === 0) return null;
-    return [...gameState.players].sort((a, b) => b.points - a.points)[0];
-  }, [gameState.players]);
-
-  useEffect(() => {
-    setTopPlayer(getTopPlayer());
-  }, [gameState.players, getTopPlayer]);
-
-  // Add death screen overlay component
-  const DeathOverlay = () => {
-    if (!currentPlayer || currentPlayer.status !== 'dead') return null;
-
-    return (
-      <div className="absolute inset-0 bg-red-900/80 backdrop-blur-md flex items-center justify-center z-50">
-        <div className="text-center text-white p-8 space-y-6">
-          <h1 className="text-7xl font-bold animate-pulse mb-8">TAGGED!</h1>
-          
-          <div className="text-2xl space-y-4">
-            <p>Your Final Score: <span className="text-yellow-400 font-bold">{currentPlayer.points}</span></p>
-            
-            {topPlayer && (
-              <div className="mt-4">
-                <p className="text-xl opacity-80">Top Player</p>
-                <p className="text-3xl font-bold text-yellow-400">{topPlayer.name}</p>
-                <p className="text-2xl">Score: {topPlayer.points}</p>
-              </div>
-            )}
-
-            {currentPlayer.lives > 0 ? (
-              <div className="mt-8">
-                <p className="text-xl mb-2">Lives Remaining: {currentPlayer.lives}</p>
-                <p className="text-4xl font-bold text-green-400">
-                  Respawning in {respawnCountdown ?? 10}s
-                </p>
-              </div>
-            ) : (
-              <div className="mt-8">
-                <p className="text-3xl font-bold text-red-400">GAME OVER</p>
-                <p className="text-xl mt-2">No lives remaining</p>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  };
 
   // Update player stats when current player changes
   useEffect(() => {
@@ -505,6 +472,18 @@ export const GameView: React.FC<GameViewProps> = ({
     }
   }, [currentPoses, getCrosshairState]);
 
+  // State for notifications
+  const [notifications, setNotifications] = useState<Array<{ message: string; type: 'success' | 'error' | 'info' }>>([]);
+
+  // Override the showNotification prop with our own implementation
+  const handleNotification = useCallback((message: string, type: 'success' | 'error' | 'info') => {
+    setNotifications(prev => [...prev, { message, type }]);
+    // Remove notification after 3 seconds
+    setTimeout(() => {
+      setNotifications(prev => prev.slice(1));
+    }, 3000);
+  }, []);
+
   // Notification Container Component
   const NotificationContainer = () => {
     return (
@@ -527,7 +506,41 @@ export const GameView: React.FC<GameViewProps> = ({
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-black">
-      {/* Main Game View */}
+      {/* Death Screen Overlay */}
+      {currentPlayer?.status === 'dead' && (
+        <div className="fixed inset-0 bg-red-900/80 backdrop-blur-md flex items-center justify-center" style={{ zIndex: 1000 }}>
+          <div className="text-center text-white p-8 space-y-6 max-w-2xl w-full">
+            <h1 className="text-7xl font-bold animate-pulse mb-8">TAGGED!</h1>
+            
+            <div className="text-2xl space-y-4">
+              <p>Your Final Score: <span className="text-yellow-400 font-bold">{currentPlayer.points}</span></p>
+              
+              {topPlayer && (
+                <div className="mt-4">
+                  <p className="text-xl opacity-80">Top Player</p>
+                  <p className="text-3xl font-bold text-yellow-400">{topPlayer.name}</p>
+                  <p className="text-2xl">Score: {topPlayer.points}</p>
+                </div>
+              )}
+
+              {currentPlayer.lives > 0 ? (
+                <div className="mt-8">
+                  <p className="text-xl mb-2">Lives Remaining: {currentPlayer.lives}</p>
+                  <p className="text-4xl font-bold text-green-400">
+                    Respawning in {respawnCountdown ?? 10}s
+                  </p>
+                </div>
+              ) : (
+                <div className="mt-8">
+                  <p className="text-3xl font-bold text-red-400">GAME OVER</p>
+                  <p className="text-xl mt-2">No lives remaining</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="relative w-full h-full">
         {hasCameraPermission ? (
           <div className="relative w-full h-full" style={{ cursor: 'crosshair' }}>
@@ -550,7 +563,7 @@ export const GameView: React.FC<GameViewProps> = ({
               screenFlash === 'shoot' ? 'bg-yellow-500/20 opacity-100' :
               'opacity-0'
             }`} />
-            
+
             {/* Health/Score Delta Animations */}
             {healthDelta !== null && (
               <div className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 
@@ -722,9 +735,6 @@ export const GameView: React.FC<GameViewProps> = ({
             </div>
           )}
         </div>
-
-        {/* Add Death Overlay */}
-        <DeathOverlay />
       </div>
 
       {/* Instructions Modal */}
