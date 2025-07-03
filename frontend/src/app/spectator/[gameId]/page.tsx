@@ -46,6 +46,7 @@ interface CameraFeed {
   type: 'environment' | 'face';
   stream?: MediaStream;
   isActive: boolean;
+  lastFrame?: string; // Add for image-based streaming
 }
 
 export default function SpectatorGameView() {
@@ -63,6 +64,7 @@ export default function SpectatorGameView() {
   
   // Camera feeds state
   const [cameraFeeds, setCameraFeeds] = useState<CameraFeed[]>([]);
+  const [cameraFrames, setCameraFrames] = useState<{ [key: string]: string }>({});
   const [selectedFeed, setSelectedFeed] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -133,6 +135,7 @@ export default function SpectatorGameView() {
       console.log(`Joining game as spectator: ${gameId}`);
       newSocket.emit('spectatorJoin', { gameId });
       newSocket.emit('requestGameData', { gameId });
+      newSocket.emit('requestCameraFeeds', { gameId });
       
       // Also try alternative event names in case backend uses different naming
       newSocket.emit('joinGameAsSpectator', gameId);
@@ -267,20 +270,45 @@ export default function SpectatorGameView() {
       setCameraFeeds(feeds);
     });
 
-    socket.on('cameraStreamStart', (data: { playerId: string; type: 'environment' | 'face'; stream: MediaStream }) => {
+    socket.on('cameraStreamStart', (data: { playerId: string; playerName: string; type: 'environment' | 'face'; isActive: boolean }) => {
+      setCameraFeeds(prev => {
+        const existingIndex = prev.findIndex(feed => feed.playerId === data.playerId && feed.type === data.type);
+        if (existingIndex >= 0) {
+          const updated = [...prev];
+          updated[existingIndex] = { ...updated[existingIndex], isActive: data.isActive };
+          return updated;
+        } else {
+          return [...prev, {
+            playerId: data.playerId,
+            playerName: data.playerName,
+            type: data.type,
+            isActive: data.isActive
+          }];
+        }
+      });
+    });
+
+    socket.on('cameraStreamStop', (data: { playerId: string; type: 'environment' | 'face'; isActive: boolean }) => {
       setCameraFeeds(prev => prev.map(feed => 
         feed.playerId === data.playerId && feed.type === data.type
-          ? { ...feed, stream: data.stream, isActive: true }
+          ? { ...feed, isActive: data.isActive }
           : feed
       ));
     });
 
-    socket.on('cameraStreamStop', (data: { playerId: string; type: 'environment' | 'face' }) => {
+    socket.on('cameraFrame', (data: { playerId: string; frame: string; timestamp: number }) => {
       setCameraFeeds(prev => prev.map(feed => 
-        feed.playerId === data.playerId && feed.type === data.type
-          ? { ...feed, stream: undefined, isActive: false }
+        feed.playerId === data.playerId
+          ? { ...feed, lastFrame: data.frame }
           : feed
       ));
+    });
+
+    socket.on('cameraFrame', (data: { playerId: string; frame: string; timestamp: number }) => {
+      setCameraFrames(prev => ({
+        ...prev,
+        [data.playerId]: data.frame
+      }));
     });
 
     socket.on('gameEnded', (data: { gameId: string }) => {
@@ -297,6 +325,7 @@ export default function SpectatorGameView() {
       socket.off('cameraFeedUpdate');
       socket.off('cameraStreamStart');
       socket.off('cameraStreamStop');
+      socket.off('cameraFrame');
       socket.off('gameEnded');
     };
   }, [socket, gameId, currentGame]);
@@ -775,32 +804,27 @@ export default function SpectatorGameView() {
                 
                 {/* Camera feeds */}
                 <div className="mt-3 flex gap-2">
-                  {cameraFeeds
-                    .filter(feed => feed.playerId === player.id)
-                    .map(feed => (
-                      <button
-                        key={`${feed.playerId}-${feed.type}`}
-                        onClick={() => setSelectedFeed(`${feed.playerId}-${feed.type}`)}
-                        className={`flex-1 p-2 rounded text-xs transition-colors ${
-                          feed.isActive 
-                            ? 'bg-green-700 hover:bg-green-600' 
-                            : 'bg-gray-700 hover:bg-gray-600'
-                        }`}
-                      >
-                        <Camera className="h-3 w-3 mx-auto mb-1" />
-                        {feed.type}
-                      </button>
-                    ))}
+                  <button
+                    onClick={() => setSelectedFeed(player.id)}
+                    className={`flex-1 p-2 rounded text-xs transition-colors ${
+                      cameraFrames[player.id] 
+                        ? 'bg-green-700 hover:bg-green-600' 
+                        : 'bg-gray-700 hover:bg-gray-600'
+                    }`}
+                  >
+                    <Camera className="h-3 w-3 mx-auto mb-1" />
+                    {cameraFrames[player.id] ? 'Live' : 'Offline'}
+                  </button>
                 </div>
               </div>
             ))}
           </div>
 
           {/* Camera feeds section */}
-          {showCameraFeeds && cameraFeeds.length > 0 && (
+          {showCameraFeeds && Object.keys(cameraFrames).length > 0 && (
             <div className="bg-gray-800 border border-gray-700 rounded-lg p-6">
               <div className="flex justify-between items-center mb-4">
-                <h3 className="text-xl font-semibold">Camera Feeds</h3>
+                <h3 className="text-xl font-semibold">Live Player Views</h3>
                 <button
                   onClick={() => setShowCameraFeeds(false)}
                   className="text-gray-400 hover:text-white transition-colors"
@@ -810,37 +834,53 @@ export default function SpectatorGameView() {
               </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {cameraFeeds.map(feed => (
-                  <div key={`${feed.playerId}-${feed.type}`} className="relative">
-                    <div className="aspect-video bg-gray-900 rounded-lg overflow-hidden">
-                      {feed.isActive && feed.stream ? (
-                        <video
-                          ref={el => {
-                            videoRefs.current[`${feed.playerId}-${feed.type}`] = el;
-                          }}
-                          autoPlay
-                          playsInline
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <CameraOff className="h-8 w-8 text-gray-500" />
+                {Object.entries(cameraFrames).map(([playerId, frame]) => {
+                  const player = currentGame?.players.find(p => p.id === playerId);
+                  if (!player) return null;
+                  
+                  return (
+                    <div key={playerId} className="relative">
+                      <div className="aspect-video bg-gray-900 rounded-lg overflow-hidden">
+                        {frame ? (
+                          <img
+                            src={frame}
+                            alt={`${player.name}'s view`}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <CameraOff className="h-8 w-8 text-gray-500" />
+                          </div>
+                        )}
+                      </div>
+                      
+                      <div className="absolute bottom-2 left-2 bg-black/70 px-2 py-1 rounded text-sm">
+                        <span className={`inline-block w-2 h-2 rounded-full mr-2 ${
+                          player.team === 'red' ? 'bg-red-500' : 'bg-blue-500'
+                        }`}></span>
+                        {player.name}
+                      </div>
+                      
+                      <div className="absolute top-2 right-2 flex gap-1">
+                        <div className="bg-black/70 px-2 py-1 rounded text-xs">
+                          {player.health}HP
                         </div>
-                      )}
+                        {frame && (
+                          <div className="bg-green-600 px-2 py-1 rounded text-xs">
+                            LIVE
+                          </div>
+                        )}
+                      </div>
+                      
+                      <button
+                        onClick={() => setSelectedFeed(playerId)}
+                        className="absolute top-2 left-2 p-1 bg-black/70 rounded hover:bg-black/90 transition-colors"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                      </button>
                     </div>
-                    
-                    <div className="absolute bottom-2 left-2 bg-black/70 px-2 py-1 rounded text-sm">
-                      {feed.playerName} - {feed.type}
-                    </div>
-                    
-                    <button
-                      onClick={() => setSelectedFeed(`${feed.playerId}-${feed.type}`)}
-                      className="absolute top-2 right-2 p-1 bg-black/70 rounded hover:bg-black/90 transition-colors"
-                    >
-                      <ExternalLink className="h-4 w-4" />
-                    </button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

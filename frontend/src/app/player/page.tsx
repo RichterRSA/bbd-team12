@@ -80,6 +80,60 @@ export default function PlayerView() {
     };
   }, []);
 
+  // Start camera streaming when game starts
+  useEffect(() => {
+    if (gameState && gameState.status === 'in-progress' && socketRef.current && webcamRef.current?.video) {
+      console.log('🎥 Starting camera stream for spectators');
+      socketRef.current.emit('startCameraStream', { 
+        gameId: gameState.id, 
+        type: 'environment' 
+      });
+
+      return () => {
+        if (socketRef.current) {
+          socketRef.current.emit('stopCameraStream', { 
+            gameId: gameState.id, 
+            type: 'environment' 
+          });
+        }
+      };
+    }
+  }, [gameState?.status, gameState?.id]);
+
+  // Send camera frames to spectators
+  useEffect(() => {
+    if (!webcamRef.current?.video || !gameState || gameState.status !== 'in-progress') return;
+
+    const sendCameraFrames = () => {
+      const video = webcamRef.current?.video;
+      if (!video || !socketRef.current) return;
+
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      if (!context) return;
+
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      context.drawImage(video, 0, 0);
+
+      try {
+        const frame = canvas.toDataURL('image/jpeg', 0.5); // Lower quality for streaming
+        socketRef.current.emit('cameraFrame', {
+          gameId: gameState.id,
+          frame: frame
+        });
+      } catch (error) {
+        console.error('Error sending camera frame:', error);
+      }
+    };
+
+    const interval = setInterval(sendCameraFrames, 200); // Send 5 FPS to spectators
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [gameState?.status, gameState?.id, webcamRef.current?.video]);
+
   // Initialize QR Scanner when webcam is ready
   useEffect(() => {
     if (!webcamRef.current?.video || !hasCameraPermission) return;
@@ -231,6 +285,22 @@ export default function PlayerView() {
 
       drawCrosshair(canvasRef, webcamRef, CROSSHAIR_RADIUS, isPersonInside, "rgba(255, 255, 255, 0.6)");
       drawDetections(poses, canvasRef, webcamRef, true);
+
+      // Send camera frame to spectators (reduced frequency)
+      if (socketRef.current && gameState.status === 'in-progress') {
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        if (context) {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          context.drawImage(video, 0, 0);
+          const frame = canvas.toDataURL('image/jpeg', 0.3); // Low quality for streaming
+          socketRef.current.emit('cameraFrame', {
+            gameId: gameState.id,
+            frame: frame
+          });
+        }
+      }
 
       const now = Date.now();
       if (isPersonInside && player.weapon && now - lastShotTimeRef.current > 1000) {
