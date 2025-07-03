@@ -18,7 +18,7 @@ export const Notification: React.FC<NotificationProps> = ({ notification }) => {
       : 'bg-blue-500';
   
   return (
-    <div className={`fixed bottom-4 left-1/2 transform -translate-x-1/2 ${bgColor} text-white px-4 py-2 rounded-md shadow-lg z-50 animate-fadeIn flex items-center`}>
+    <div className={`fixed top-8 left-1/2 transform -translate-x-1/2 ${bgColor} text-white px-4 py-2 rounded-md shadow-lg z-50 animate-fadeIn flex items-center`}>
       {notification.type === 'success' && <Zap className="mr-2" size={16} />}
       {notification.type === 'error' && <AlertCircle className="mr-2" size={16} />}
       {notification.type === 'info' && <MessageSquare className="mr-2" size={16} />}
