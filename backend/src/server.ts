@@ -771,20 +771,13 @@ io.on('connection', (socket: Socket) => {
   //Functions to handle player damage 
 socket.on('playerDamage', (data: { gameId: string; targetPlayerId: string; attackerId?: string}) => {
     try {
-        //Get the game where the damage happened
         const game = games[data.gameId];
-        //check if the game exists and is in progress
         if(!game || game.status !== 'in-progress'){
-            console.log (`Damage ignore: Game ${data.gameId} not found/not in-progress`);
-            socket.emit('error', 'Game not found or not in progress');
             return;
         }
-        //find player who was hit
+
         const targetPlayer = game.players.find(p => p.id === data.targetPlayerId);
-        //player not found = cancel
         if(!targetPlayer){
-            console.log(`Player ${data.targetPlayerId} not found in game ${data.gameId}`);
-            socket.emit('error', 'Target player not found');
             return;
         }
 
@@ -792,80 +785,72 @@ socket.on('playerDamage', (data: { gameId: string; targetPlayerId: string; attac
         const attackerId = data.attackerId || socket.id;
         const attacker = game.players.find(p => p.id === attackerId);
         
-        if (!attacker) {
-            console.log(`Attacker ${attackerId} not found in game ${data.gameId}`);
-            socket.emit('error', 'Attacker not found');
+        if (!attacker || attacker.status === 'dead') {
             return;
         }
 
-        // Prevent self-damage and friendly fire
-        if (attackerId === data.targetPlayerId) {
-            console.log('Self-damage prevented');
-            return;
-        }
+        // Calculate damage (can be modified based on weapons/powerups later)
+        const damage = 25;
 
-        if (attacker.team === targetPlayer.team) {
-            console.log('Friendly fire prevented');
-            socket.emit('error', 'Friendly fire is not allowed');
-            return;
-        }
+        // Update target player's health
+        targetPlayer.health = Math.max(0, targetPlayer.health - damage);
 
-        //decrease health by 10 each time player is hit
-        const damage = 10;
-        targetPlayer.health -= damage;
-        //do not allow health to go below 0
-        if(targetPlayer.health < 0){
-            targetPlayer.health = 0;
-        }
-        //log the hit and new health
-        console.log(`Player ${targetPlayer.name} (${targetPlayer.id}) hit by ${attacker.name}; New health: ${targetPlayer.health}`);
-        
-        // Emit damage event to the target player
-        io.to(data.targetPlayerId).emit('playerDamaged', {
-            targetPlayerId: data.targetPlayerId,
-            damage: damage,
-            attackerName: attacker.name
-        });
-
-        // Award points to the attacker
-        attacker.points = (attacker.points || 0) + 10;
-        
-        //let all players know of the player's new health
-        io.to(data.gameId).emit('playerHealthUpdate', {
-            gameId: data.gameId,
+        // Emit damage event to all players
+        io.to(game.id).emit('playerHealthUpdate', {
             playerId: targetPlayer.id,
-            health: targetPlayer.health,
-            isAlive: targetPlayer.health > 0
+            health: targetPlayer.health
         });
 
-        // Emit score update to attacker
-        io.to(attackerId).emit('playerScoreUpdate', {
-            playerId: attackerId,
-            points: attacker.points
-        });
-
-        //health below 0 = eliminate player
-        if(targetPlayer.health === 0){
+        // Check if player is killed
+        if (targetPlayer.health <= 0) {
             targetPlayer.status = 'dead';
-            console.log(`Player ${targetPlayer.name} has been eliminated`);
-            io.to(data.gameId).emit('playerEliminated', {
+            targetPlayer.lives--;
+
+            // Award points to attacker
+            attacker.points += 100;
+            io.to(game.id).emit('playerScoreUpdate', {
+                playerId: attacker.id,
+                points: attacker.points
+            });
+
+            // Notify about the kill
+            io.to(game.id).emit('playerEliminated', {
                 playerId: targetPlayer.id,
                 playerName: targetPlayer.name,
                 eliminatedBy: attacker.name
             });
-            
-            // Award extra points for elimination
-            attacker.points += 25;
-            io.to(attackerId).emit('playerScoreUpdate', {
-                playerId: attackerId,
-                points: attacker.points
+
+            // Emit death event with remaining lives
+            io.to(game.id).emit('playerDeath', {
+                playerId: targetPlayer.id,
+                lives: targetPlayer.lives
             });
+
+            // If player has remaining lives, schedule respawn
+            if (targetPlayer.lives > 0) {
+                setTimeout(() => {
+                    if (game.status === 'in-progress' && targetPlayer.lives > 0) {
+                        // Respawn player
+                        targetPlayer.status = 'alive';
+                        targetPlayer.health = 100;
+                        
+                        // Notify about respawn
+                        io.to(game.id).emit('playerRespawn', {
+                            playerId: targetPlayer.id
+                        });
+                        
+                        // Update health
+                        io.to(game.id).emit('playerHealthUpdate', {
+                            playerId: targetPlayer.id,
+                            health: targetPlayer.health
+                        });
+                    }
+                }, 10000); // 10 second respawn timer
+            }
         }
 
-        // Update game state for all players
-        io.to(data.gameId).emit('gameStateUpdate', game);
-        
-    } catch (error) { 
+        logGameState(game.id);
+    } catch (error) {
         console.error('Error handling player damage:', error);
     }
 });
