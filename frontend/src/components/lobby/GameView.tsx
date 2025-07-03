@@ -598,17 +598,8 @@ export const GameView: React.FC<GameViewProps> = ({
           <h1 className="text-8xl font-bold animate-pulse mb-8">TAGGED!</h1>
           
           <div className="text-2xl space-y-4">
-            <p>Current Score: <span className="text-yellow-400 font-bold">{currentPlayer.points}</span></p>
-            
-            <div className="mt-8 space-y-4">
-              <div className="flex items-center justify-center gap-2">
-                <span className="text-xl">Lives Remaining:</span>
-                <span className="text-2xl font-bold text-red-400">{currentPlayer.lives}</span>
-              </div>
-              <div className="text-4xl font-bold text-green-400 animate-pulse">
-                Respawning in {respawnCountdown ?? 10}s
-              </div>
-            </div>
+            <p className="mb-4">Respawning in {respawnCountdown} seconds...</p>
+            <p>Lives Remaining: {currentPlayer.lives - 1}</p>
           </div>
         </div>
       </div>
@@ -643,7 +634,12 @@ export const GameView: React.FC<GameViewProps> = ({
             </div>
             
             <button
-              onClick={() => router.push('/')}
+              onClick={() => {
+                if (socket) {
+                  socket.emit('leaveGame', gameState.id);
+                }
+                window.location.href = '/';
+              }}
               className="px-8 py-4 bg-blue-600 hover:bg-blue-700 rounded-lg text-2xl font-semibold transition-colors"
             >
               Return to Home
@@ -656,9 +652,11 @@ export const GameView: React.FC<GameViewProps> = ({
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-black">
-      {/* Show GameEndScreen when game is won */}
-      {gameWonData && <GameEndScreen />}
-      
+      {/* Move notifications to top of screen */}
+      <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-[60]">
+        <NotificationContainer />
+      </div>
+
       {/* Death Screen */}
       {currentPlayer?.status === 'dead' && !gameWonData && <DeathScreen />}
 

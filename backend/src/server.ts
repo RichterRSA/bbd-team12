@@ -867,16 +867,16 @@ socket.on('playerDamage', (data: { gameId: string; targetPlayerId: string; attac
             }
         }
 
-        // Check if all players on a team are eliminated
+        // Check if all players on a team are permanently eliminated (no lives left)
         const redTeam = game.players.filter(p => p.team === 'red');
         const blueTeam = game.players.filter(p => p.team === 'blue');
         
-        const redTeamEliminated = redTeam.every(p => p.status === 'dead');
-        const blueTeamEliminated = blueTeam.every(p => p.status === 'dead');
+        const redTeamPermanentlyEliminated = redTeam.every(p => p.status === 'dead' && p.lives <= 0);
+        const blueTeamPermanentlyEliminated = blueTeam.every(p => p.status === 'dead' && p.lives <= 0);
         
-        if (redTeamEliminated || blueTeamEliminated) {
+        if (redTeamPermanentlyEliminated || blueTeamPermanentlyEliminated) {
             // Get the winning team
-            const winningTeam = redTeamEliminated ? 'blue' : 'red';
+            const winningTeam = redTeamPermanentlyEliminated ? 'blue' : 'red';
             
             // Find the top scoring player
             const topPlayer = game.players.reduce((highest, current) => 
