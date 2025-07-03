@@ -785,7 +785,25 @@ socket.on('playerDamage', (data: { gameId: string; targetPlayerId: string; attac
         const attackerId = data.attackerId || socket.id;
         const attacker = game.players.find(p => p.id === attackerId);
         
+        // Check if either player is dead
         if (!attacker || attacker.status === 'dead') {
+            return;
+        }
+        
+        if (targetPlayer.status === 'dead') {
+            socket.emit('notification', {
+                message: '💀 Target is already eliminated!',
+                type: 'error'
+            });
+            return;
+        }
+
+        // Check friendly fire
+        if (targetPlayer.team === attacker.team) {
+            socket.emit('notification', {
+                message: '⚠️ Friendly fire is not allowed!',
+                type: 'error'
+            });
             return;
         }
 

@@ -380,8 +380,14 @@ export const GameView: React.FC<GameViewProps> = ({
           showNotification('⚠️ Low health!', 'error');
         }
         if (data.health <= 0) {
+          currentPlayer.status = 'dead'; // Update player status immediately
           showNotification('💀 You have been eliminated!', 'error');
           setScreenFlash('damage');
+          
+          // Strong vibration for death
+          if (navigator.vibrate) {
+            navigator.vibrate([500, 200, 500, 200, 500]);
+          }
         }
       }
     });
@@ -422,6 +428,7 @@ export const GameView: React.FC<GameViewProps> = ({
     socket.on('playerEliminated', (data: { playerId: string; playerName: string; eliminatedBy?: string }) => {
       if (currentPlayer && data.playerId === currentPlayer.id) {
         // This player has been eliminated
+        currentPlayer.status = 'dead'; // Ensure player status is updated
         setScreenFlash('damage');
         setTimeout(() => setScreenFlash('none'), 1000);
         playDamageTakenSound();
@@ -433,6 +440,9 @@ export const GameView: React.FC<GameViewProps> = ({
         
         const eliminator = data.eliminatedBy ? ` by ${data.eliminatedBy}` : '';
         showNotification(`💀 YOU HAVE BEEN ELIMINATED${eliminator}!`, 'error');
+        
+        // Force a re-render by updating player health
+        setPlayerHealth(0);
       } else {
         // Another player was eliminated
         const eliminator = data.eliminatedBy ? ` by ${data.eliminatedBy}` : '';
@@ -507,7 +517,7 @@ export const GameView: React.FC<GameViewProps> = ({
   return (
     <div className="fixed inset-0 overflow-hidden bg-black">
       {/* Death Screen - Must be first to ensure it's shown above everything else when active */}
-      {currentPlayer?.status === 'dead' && (
+      {currentPlayer && (currentPlayer.status === 'dead' || currentPlayer.health <= 0) && (
         <div className="fixed inset-0 z-[9999] bg-red-900/95 backdrop-blur-md flex items-center justify-center">
           <div className="text-center text-white p-8 space-y-6 max-w-2xl w-full">
             <h1 className="text-8xl font-bold animate-pulse mb-8">TAGGED!</h1>
@@ -606,14 +616,12 @@ export const GameView: React.FC<GameViewProps> = ({
                       </div>
                     </div>
                   </div>
-                </div>
+                </div>              {/* Notifications container - Top 25% of screen */}
+              <div className="absolute top-[10%] left-1/2 transform -translate-x-1/2" style={{ zIndex: 40 }}>
+                <NotificationContainer />
+              </div>
 
-                {/* Move Notifications to top-center */}
-                <div className="absolute top-4 left-1/2 transform -translate-x-1/2" style={{ zIndex: 40 }}>
-                  <NotificationContainer />
-                </div>
-
-                {/* Shoot Button - Bottom Center */}
+              {/* Shoot Button - Bottom Center */}
                 <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2" style={{ zIndex: 50 }}>
                   <button
                     onClick={handleShoot}
