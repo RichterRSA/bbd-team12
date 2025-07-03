@@ -230,120 +230,59 @@ export default function SpectatorGameView() {
   useEffect(() => {
     if (!socket || !gameId) return;
 
-    socket.on('spectatorGameUpdate', (gameData: SpectatorGame) => {
-      if (gameData.id === gameId) {
-        const prevPlayerCount = currentGame?.players.length || 0;
-        const newPlayerCount = gameData.players.length;
-        
-        // Notify about player changes in waiting room
-        if (gameData.status === 'waiting') {
-          if (newPlayerCount > prevPlayerCount) {
-            const newPlayer = gameData.players[gameData.players.length - 1];
-            showWaitingRoomNotification(`${newPlayer?.name} joined the game!`);
-          } else if (newPlayerCount < prevPlayerCount) {
-            showWaitingRoomNotification(`A player left the game.`);
-          }
-        }
-        
-        setCurrentGame(gameData);
+    // Game status update handlers
+    socket.on('gameStarted', (data: { gameId: string }) => {
+      console.log('Game started event received:', data);
+      if (data.gameId === gameId) {
+        setCurrentGame(prev => prev ? {
+          ...prev,
+          status: 'in-progress',
+          score: { red: 0, blue: 0 }
+        } : prev);
       }
     });
 
-    socket.on('playerHealthUpdate', (data: { playerId: string; health: number }) => {
-      if (currentGame) {
-        setCurrentGame(prev => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            players: prev.players.map(player =>
-              player.id === data.playerId
-                ? { ...player, health: data.health, isAlive: data.health > 0 }
-                : player
-            )
-          };
-        });
+    socket.on('gameStatusUpdate', (data: { gameId: string; status: 'waiting' | 'in-progress' | 'finished' }) => {
+      console.log('Game status update received:', data);
+      if (data.gameId === gameId) {
+        setCurrentGame(prev => prev ? {
+          ...prev,
+          status: data.status
+        } : prev);
       }
     });
 
-    socket.on('playerScoreUpdate', (data: { playerId: string; points: number }) => {
-      if (currentGame) {
-        setCurrentGame(prev => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            players: prev.players.map(player =>
-              player.id === data.playerId
-                ? { ...player, points: data.points }
-                : player
-            )
-          };
-        });
+    socket.on('gameStateUpdate', (gameData: SpectatorGame) => {
+      console.log('Game state update received:', gameData);
+      if (gameData && gameData.id === gameId) {
+        setCurrentGame(prev => ({
+          ...gameData,
+          score: gameData.score || prev?.score || { red: 0, blue: 0 },
+          players: gameData.players.map(player => ({
+            ...player,
+            points: player.points || 0,
+            lives: player.lives || 3,
+            health: player.health || 100,
+            status: player.status || 'alive',
+            isAlive: player.isAlive !== undefined ? player.isAlive : true,
+            tags: player.tags || 0,
+            deaths: player.deaths || 0
+          }))
+        }));
       }
     });
 
-    socket.on('playerDeath', (data: { playerId: string; lives: number }) => {
-      if (currentGame) {
-        setCurrentGame(prev => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            players: prev.players.map(player =>
-              player.id === data.playerId
-                ? { ...player, lives: data.lives, status: 'dead', isAlive: false }
-                : player
-            )
-          };
-        });
-      }
-    });
+    // When first joining, request the current game state
+    socket.emit('requestGameState', { gameId });
+    socket.emit('spectatorJoin', { gameId });
 
-    socket.on('playerRespawn', (data: { playerId: string }) => {
-      if (currentGame) {
-        setCurrentGame(prev => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            players: prev.players.map(player =>
-              player.id === data.playerId
-                ? { ...player, status: 'alive', health: 100, isAlive: true }
-                : player
-            )
-          };
-        });
-      }
-    });
-
-    socket.on('playerDamaged', (data: { targetPlayerId: string; damage: number; attackerName: string }) => {
-      if (currentGame) {
-        setCurrentGame(prev => {
-          if (!prev) return prev;
-          const targetPlayer = prev.players.find(p => p.id === data.targetPlayerId);
-          if (!targetPlayer) return prev;
-          
-          return {
-            ...prev,
-            players: prev.players.map(player =>
-              player.id === data.targetPlayerId
-                ? {
-                    ...player,
-                    health: Math.max(0, player.health - data.damage),
-                    lastActivity: `Damaged by ${data.attackerName}`
-                  }
-                : player
-            )
-          };
-        });
-      }
-    });
-
+    // Don't forget to clean up
     return () => {
-      socket.off('playerHealthUpdate');
-      socket.off('playerScoreUpdate');
-      socket.off('playerDeath');
-      socket.off('playerRespawn');
-      socket.off('playerDamaged');
+      socket.off('gameStarted');
+      socket.off('gameStatusUpdate');
+      socket.off('gameStateUpdate');
     };
-  }, [socket, gameId, currentGame]);
+  }, [socket, gameId]);
 
   // Auto-refresh functionality
   useEffect(() => {
@@ -472,9 +411,22 @@ export default function SpectatorGameView() {
                 <h3 className="text-xl font-bold text-red-400 mb-2">Red Team</h3>
                 <div className="text-2xl font-bold">{currentGame.score?.red || 0}</div>
               </div>
-              <div className="bg-gray-800 p-4 rounded-lg text-center">
+              <div className={`p-4 rounded-lg text-center ${
+                currentGame.status === 'waiting' ? 'bg-yellow-900/30' :
+                currentGame.status === 'in-progress' ? 'bg-green-900/30' :
+                currentGame.status === 'finished' ? 'bg-gray-800' : 'bg-gray-800'
+              }`}>
                 <h3 className="text-lg font-semibold mb-2">Game Status</h3>
-                <div className="text-xl capitalize">{currentGame.status}</div>
+                <div className={`text-xl font-bold ${
+                  currentGame.status === 'waiting' ? 'text-yellow-400' :
+                  currentGame.status === 'in-progress' ? 'text-green-400' :
+                  currentGame.status === 'finished' ? 'text-gray-400' : 'text-gray-400'
+                }`}>
+                  {currentGame.status === 'waiting' ? 'Waiting for Players' :
+                   currentGame.status === 'in-progress' ? 'Game in Progress' :
+                   currentGame.status === 'finished' ? 'Game Finished' : 
+                   currentGame.status}
+                </div>
               </div>
               <div className="bg-blue-900/30 p-4 rounded-lg text-right">
                 <h3 className="text-xl font-bold text-blue-400 mb-2">Blue Team</h3>
