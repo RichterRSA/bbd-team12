@@ -530,49 +530,76 @@ export const GameView: React.FC<GameViewProps> = ({
     );
   };
 
-  return (
-    <div className="fixed inset-0 overflow-hidden bg-black">
-      {/* Death Screen - Must be first to ensure it's shown above everything else when active */}
-      {currentPlayer?.status === 'dead' && (
-        <div className="fixed inset-0 z-[9999] bg-red-900/95 backdrop-blur-md flex items-center justify-center">
-          <div className="text-center text-white p-8 space-y-6 max-w-2xl w-full">
-            <h1 className="text-8xl font-bold animate-pulse mb-8">TAGGED!</h1>
-            
-            <div className="text-2xl space-y-4">
-              <p>Your Final Score: <span className="text-yellow-400 font-bold">{currentPlayer.points}</span></p>
-              
-              {topPlayer && (
-                <div className="mt-4">
-                  <p className="text-xl opacity-80">Top Player</p>
-                  <p className="text-3xl font-bold text-yellow-400">{topPlayer.name}</p>
-                  <p className="text-2xl">Score: {topPlayer.points}</p>
-                </div>
-              )}
+  const DeathScreen = () => {
+    if (!currentPlayer) return null;
 
-              {currentPlayer.lives > 0 ? (
-                <div className="mt-8 space-y-4">
-                  <div className="flex items-center justify-center gap-2">
-                    <span className="text-xl">Lives Remaining:</span>
-                    <span className="text-2xl font-bold text-red-400">{currentPlayer.lives}</span>
-                  </div>
-                  <div className="text-4xl font-bold text-green-400 animate-pulse">
-                    Respawning in {respawnCountdown ?? 10}s
-                  </div>
-                </div>
-              ) : (
-                <div className="mt-8 space-y-4">
-                  <p className="text-5xl font-bold text-red-400 animate-pulse">GAME OVER</p>
-                  <p className="text-2xl mt-2 text-red-300">No lives remaining</p>
+    if (currentPlayer.lives <= 0) {
+      // Final death screen - no respawn
+      return (
+        <div className="fixed inset-0 z-[9999] bg-red-950/95 backdrop-blur-md flex items-center justify-center">
+          <div className="text-center text-white p-8 space-y-8 max-w-2xl w-full">
+            <div className="space-y-4">
+              <h1 className="text-9xl font-bold text-red-500 animate-pulse mb-8">DEAD</h1>
+              <p className="text-3xl font-bold text-red-300 animate-pulse">Game Over</p>
+            </div>
+            
+            <div className="text-2xl space-y-6 mt-8">
+              <div className="p-6 bg-black/30 rounded-lg">
+                <p className="text-xl mb-4">Final Stats</p>
+                <p>Score: <span className="text-yellow-400 font-bold">{currentPlayer.points}</span></p>
+                <p>Lives: <span className="text-red-400 font-bold">0</span></p>
+              </div>
+              
+              {topPlayer && topPlayer.id !== currentPlayer.id && (
+                <div className="p-6 bg-black/30 rounded-lg">
+                  <p className="text-xl mb-4">Top Player</p>
+                  <p className="text-2xl font-bold text-yellow-400">{topPlayer.name}</p>
+                  <p className="text-xl">Score: {topPlayer.points}</p>
                 </div>
               )}
             </div>
           </div>
         </div>
-      )}
+      );
+    }
+
+    // Temporary death screen - will respawn
+    return (
+      <div className="fixed inset-0 z-[9999] bg-red-900/95 backdrop-blur-md flex items-center justify-center">
+        <div className="text-center text-white p-8 space-y-6 max-w-2xl w-full">
+          <h1 className="text-8xl font-bold animate-pulse mb-8">TAGGED!</h1>
+          
+          <div className="text-2xl space-y-4">
+            <p>Current Score: <span className="text-yellow-400 font-bold">{currentPlayer.points}</span></p>
+            
+            <div className="mt-8 space-y-4">
+              <div className="flex items-center justify-center gap-2">
+                <span className="text-xl">Lives Remaining:</span>
+                <span className="text-2xl font-bold text-red-400">{currentPlayer.lives}</span>
+              </div>
+              <div className="text-4xl font-bold text-green-400 animate-pulse">
+                Respawning in {respawnCountdown ?? 10}s
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="fixed inset-0 overflow-hidden bg-black">
+      {/* Death Screen */}
+      {currentPlayer?.status === 'dead' && <DeathScreen />}
 
       {/* Only render game content if player is alive */}
       {(!currentPlayer || currentPlayer.status !== 'dead') && (
         <div className="relative w-full h-full">
+          {/* Move notifications to top of screen */}
+          <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50">
+            <NotificationContainer />
+          </div>
+
           {hasCameraPermission ? (
             <div className="relative w-full h-full" style={{ cursor: 'crosshair' }}>
               <Webcam
