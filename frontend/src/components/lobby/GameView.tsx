@@ -506,11 +506,11 @@ export const GameView: React.FC<GameViewProps> = ({
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-black">
-      {/* Death Screen Overlay */}
+      {/* Death Screen - Must be first to ensure it's shown above everything else when active */}
       {currentPlayer?.status === 'dead' && (
-        <div className="fixed inset-0 bg-red-900/80 backdrop-blur-md flex items-center justify-center" style={{ zIndex: 1000 }}>
+        <div className="fixed inset-0 z-[9999] bg-red-900/95 backdrop-blur-md flex items-center justify-center">
           <div className="text-center text-white p-8 space-y-6 max-w-2xl w-full">
-            <h1 className="text-7xl font-bold animate-pulse mb-8">TAGGED!</h1>
+            <h1 className="text-8xl font-bold animate-pulse mb-8">TAGGED!</h1>
             
             <div className="text-2xl space-y-4">
               <p>Your Final Score: <span className="text-yellow-400 font-bold">{currentPlayer.points}</span></p>
@@ -524,16 +524,19 @@ export const GameView: React.FC<GameViewProps> = ({
               )}
 
               {currentPlayer.lives > 0 ? (
-                <div className="mt-8">
-                  <p className="text-xl mb-2">Lives Remaining: {currentPlayer.lives}</p>
-                  <p className="text-4xl font-bold text-green-400">
+                <div className="mt-8 space-y-4">
+                  <div className="flex items-center justify-center gap-2">
+                    <span className="text-xl">Lives Remaining:</span>
+                    <span className="text-2xl font-bold text-red-400">{currentPlayer.lives}</span>
+                  </div>
+                  <div className="text-4xl font-bold text-green-400 animate-pulse">
                     Respawning in {respawnCountdown ?? 10}s
-                  </p>
+                  </div>
                 </div>
               ) : (
-                <div className="mt-8">
-                  <p className="text-3xl font-bold text-red-400">GAME OVER</p>
-                  <p className="text-xl mt-2">No lives remaining</p>
+                <div className="mt-8 space-y-4">
+                  <p className="text-5xl font-bold text-red-400 animate-pulse">GAME OVER</p>
+                  <p className="text-2xl mt-2 text-red-300">No lives remaining</p>
                 </div>
               )}
             </div>
@@ -541,203 +544,206 @@ export const GameView: React.FC<GameViewProps> = ({
         </div>
       )}
 
-      <div className="relative w-full h-full">
-        {hasCameraPermission ? (
-          <div className="relative w-full h-full" style={{ cursor: 'crosshair' }}>
-            <Webcam
-              ref={webcamRef}
-              audio={false}
-              className="w-full h-full object-cover"
-              screenshotFormat="image/jpeg"
-              videoConstraints={{
-                width: { ideal: 1920 },
-                height: { ideal: 1080 },
-                facingMode: isMobileDevice() ? { ideal: "environment" } : { ideal: "user" }
-              }}
-            />
-            
-            {/* Screen Flash Overlay */}
-            <div className={`absolute inset-0 pointer-events-none transition-opacity duration-300 ${
-              screenFlash === 'damage' ? 'bg-red-500/40 opacity-100' :
-              screenFlash === 'hit' ? 'bg-green-500/30 opacity-100' :
-              screenFlash === 'shoot' ? 'bg-yellow-500/20 opacity-100' :
-              'opacity-0'
-            }`} />
+      {/* Only render game content if player is alive */}
+      {(!currentPlayer || currentPlayer.status !== 'dead') && (
+        <div className="relative w-full h-full">
+          {hasCameraPermission ? (
+            <div className="relative w-full h-full" style={{ cursor: 'crosshair' }}>
+              <Webcam
+                ref={webcamRef}
+                audio={false}
+                className="w-full h-full object-cover"
+                screenshotFormat="image/jpeg"
+                videoConstraints={{
+                  width: { ideal: 1920 },
+                  height: { ideal: 1080 },
+                  facingMode: isMobileDevice() ? { ideal: "environment" } : { ideal: "user" }
+                }}
+              />
+              
+              {/* Screen Flash Overlay */}
+              <div className={`absolute inset-0 pointer-events-none transition-opacity duration-300 ${
+                screenFlash === 'damage' ? 'bg-red-500/40 opacity-100' :
+                screenFlash === 'hit' ? 'bg-green-500/30 opacity-100' :
+                screenFlash === 'shoot' ? 'bg-yellow-500/20 opacity-100' :
+                'opacity-0'
+              }`} />
 
-            {/* Health/Score Delta Animations */}
-            {healthDelta !== null && (
-              <div className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 
-                              text-6xl font-bold pointer-events-none animate-bounce z-50 ${
-                healthDelta < 0 ? 'text-red-500' : 'text-green-500'
-              }`}>
-                {healthDelta > 0 ? '+' : ''}{healthDelta}
-              </div>
-            )}
-            
-            {scoreDelta !== null && (
-              <div className="absolute top-20 right-8 text-4xl font-bold text-yellow-400 pointer-events-none animate-pulse z-50">
-                +{scoreDelta}
-              </div>
-            )}
-            
-            {/* Game UI Overlays */}
-            <div className="absolute inset-0">
-              {/* Player Info Overlay - Top Left */}
-              <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-sm rounded-lg p-3 text-white pointer-events-none">
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                    <span className="text-sm">{currentPlayer?.name || playerName}</span>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <div>
-                      HP: <span className={`font-bold ${
-                        playerHealth > 50 ? 'text-green-400' : 
-                        playerHealth > 20 ? 'text-yellow-400' : 'text-red-400'
-                      }}`}>{playerHealth}</span>
+              {/* Health/Score Delta Animations */}
+              {healthDelta !== null && (
+                <div className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 
+                                text-6xl font-bold pointer-events-none animate-bounce z-50 ${
+                  healthDelta < 0 ? 'text-red-500' : 'text-green-500'
+                }`}>
+                  {healthDelta > 0 ? '+' : ''}{healthDelta}
+                </div>
+              )}
+              
+              {scoreDelta !== null && (
+                <div className="absolute top-20 right-8 text-4xl font-bold text-yellow-400 pointer-events-none animate-pulse z-50">
+                  +{scoreDelta}
+                </div>
+              )}
+              
+              {/* Game UI Overlays */}
+              <div className="absolute inset-0">
+                {/* Player Info Overlay - Top Left */}
+                <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-sm rounded-lg p-3 text-white pointer-events-none">
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                      <span className="text-sm">{currentPlayer?.name || playerName}</span>
                     </div>
-                    <div>
-                      Score: <span className="font-bold text-blue-400">{playerScore}</span>
+                    <div className="flex items-center gap-4">
+                      <div>
+                        HP: <span className={`font-bold ${
+                          playerHealth > 50 ? 'text-green-400' : 
+                          playerHealth > 20 ? 'text-yellow-400' : 'text-red-400'
+                        }}`}>{playerHealth}</span>
+                      </div>
+                      <div>
+                        Score: <span className="font-bold text-blue-400">{playerScore}</span>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Move Notifications to top-center */}
-              <div className="absolute top-4 left-1/2 transform -translate-x-1/2" style={{ zIndex: 40 }}>
-                <NotificationContainer />
-              </div>
+                {/* Move Notifications to top-center */}
+                <div className="absolute top-4 left-1/2 transform -translate-x-1/2" style={{ zIndex: 40 }}>
+                  <NotificationContainer />
+                </div>
 
-              {/* Shoot Button - Bottom Center */}
-              <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2" style={{ zIndex: 50 }}>
+                {/* Shoot Button - Bottom Center */}
+                <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2" style={{ zIndex: 50 }}>
+                  <button
+                    onClick={handleShoot}
+                    className={`px-8 py-4 bg-red-600 text-white rounded-full font-bold text-xl shadow-lg 
+                      transition-all duration-200 ${isShooting ? 'scale-95 bg-red-700' : 'hover:bg-red-500'}
+                      ${Date.now() - lastShotTime < SHOOT_COOLDOWN ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    disabled={Date.now() - lastShotTime < SHOOT_COOLDOWN}
+                  >
+                    🎯 FIRE!
+                  </button>
+                </div>
+
+                {/* Game UI continues */}
+
+                {/* Crosshair */}
+                <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none">
+                  <div 
+                    className={`w-32 h-32 border-4 rounded-full relative transition-all duration-200 ${
+                      isShooting ? 'scale-90' : ''
+                    }`}
+                    style={{ 
+                      borderColor: getCrosshairState().color, 
+                      backgroundColor: getCrosshairState().color.replace('0.6', '0.1'),
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
+                      <div className="w-8 h-1" style={{ backgroundColor: getCrosshairState().color }}></div>
+                      <div className="w-1 h-8 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"
+                           style={{ backgroundColor: getCrosshairState().color }}></div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Target Detection Indicator */}
+                {(() => {
+                  const state = getCrosshairState();
+                  if (state.isTargetDetected && state.debugInfo.playerMatches.length > 0) {
+                    // Find the player with the lowest color distance
+                    const closestMatch = state.debugInfo.playerMatches.reduce((prev, current) => 
+                      prev.distance < current.distance ? prev : current
+                    );
+                    
+                    // Only show if the distance is within an acceptable range
+                    if (closestMatch.distance < 30) {
+                      return (
+                        <div className="absolute top-20 left-1/2 transform -translate-x-1/2">
+                          <div className="bg-green-500 text-black px-4 py-2 rounded-full text-sm font-bold animate-pulse">
+                            Target Acquired: {closestMatch.player.name}
+                          </div>
+                        </div>
+                      );
+                    }
+                  }
+                  return null;
+                })()}
+
+                {/* Target UI elements end */}
+              </div>
+              
+              {/* Pose detection overlay */}
+              <canvas
+                ref={canvasRef}
+                className="absolute top-0 left-0 w-full h-full pointer-events-none opacity-60"
+                style={{ mixBlendMode: 'screen' }}
+              />
+            </div>
+          ) : (
+            <div className="w-full h-full flex items-center justify-center bg-gray-900">
+              <div className="text-center">
+                <Camera className="mx-auto mb-4 text-gray-400" size={64} />
+                <h3 className="text-white text-xl mb-2">Camera Required</h3>
+                <p className="text-gray-400 mb-4">Camera access is needed to play the game</p>
                 <button
-                  onClick={handleShoot}
-                  className={`px-8 py-4 bg-red-600 text-white rounded-full font-bold text-xl shadow-lg 
-                    transition-all duration-200 ${isShooting ? 'scale-95 bg-red-700' : 'hover:bg-red-500'}
-                    ${Date.now() - lastShotTime < SHOOT_COOLDOWN ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  disabled={Date.now() - lastShotTime < SHOOT_COOLDOWN}
+                  onClick={async () => {
+                    const hasPermission = await requestCameraPermission(showNotification);
+                    setHasCameraPermission(hasPermission);
+                    if (hasPermission) {
+                      showNotification('Camera access granted! Game ready.', 'success');
+                    } else {
+                      showNotification('Camera access denied. Cannot continue game.', 'error');
+                    }
+                  }}
+                  className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-500 transition-all duration-200 font-semibold"
                 >
-                  🎯 FIRE!
+                  📷 Enable Camera
                 </button>
               </div>
-
-              {/* Game UI continues */}
-
-              {/* Crosshair */}
-              <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none">
-                <div 
-                  className={`w-32 h-32 border-4 rounded-full relative transition-all duration-200 ${
-                    isShooting ? 'scale-90' : ''
-                  }`}
-                  style={{ 
-                    borderColor: getCrosshairState().color, 
-                    backgroundColor: getCrosshairState().color.replace('0.6', '0.1'),
-                    transition: 'all 0.2s ease'
-                  }}
-                >
-                  <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
-                    <div className="w-8 h-1" style={{ backgroundColor: getCrosshairState().color }}></div>
-                    <div className="w-1 h-8 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"
-                         style={{ backgroundColor: getCrosshairState().color }}></div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Target Detection Indicator */}
-              {(() => {
-                const state = getCrosshairState();
-                if (state.isTargetDetected && state.debugInfo.playerMatches.length > 0) {
-                  // Find the player with the lowest color distance
-                  const closestMatch = state.debugInfo.playerMatches.reduce((prev, current) => 
-                    prev.distance < current.distance ? prev : current
-                  );
-                  
-                  // Only show if the distance is within an acceptable range
-                  if (closestMatch.distance < 30) {
-                    return (
-                      <div className="absolute top-20 left-1/2 transform -translate-x-1/2">
-                        <div className="bg-green-500 text-black px-4 py-2 rounded-full text-sm font-bold animate-pulse">
-                          Target Acquired: {closestMatch.player.name}
-                        </div>
-                      </div>
-                    );
-                  }
-                }
-                return null;
-              })()}
-
-              {/* Target UI elements end */}
-            </div>
-            
-            {/* Pose detection overlay */}
-            <canvas
-              ref={canvasRef}
-              className="absolute top-0 left-0 w-full h-full pointer-events-none opacity-60"
-              style={{ mixBlendMode: 'screen' }}
-            />
-          </div>
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-gray-900">
-            <div className="text-center">
-              <Camera className="mx-auto mb-4 text-gray-400" size={64} />
-              <h3 className="text-white text-xl mb-2">Camera Required</h3>
-              <p className="text-gray-400 mb-4">Camera access is needed to play the game</p>
-              <button
-                onClick={async () => {
-                  const hasPermission = await requestCameraPermission(showNotification);
-                  setHasCameraPermission(hasPermission);
-                  if (hasPermission) {
-                    showNotification('Camera access granted! Game ready.', 'success');
-                  } else {
-                    showNotification('Camera access denied. Cannot continue game.', 'error');
-                  }
-                }}
-                className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-500 transition-all duration-200 font-semibold"
-              >
-                📷 Enable Camera
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Menu Button */}
-        <div className="absolute top-4 right-4 z-10">
-          <button
-            onClick={() => setShowMenu(!showMenu)}
-            className="bg-black/60 backdrop-blur-sm text-white p-2 rounded-lg hover:bg-black/80 transition-all"
-          >
-            <Menu size={20} />
-          </button>
-
-          {/* Dropdown Menu */}
-          {showMenu && (
-            <div className="absolute top-full right-0 mt-2 w-48 bg-black/90 backdrop-blur-sm rounded-lg overflow-hidden border border-gray-800">
-              <button
-                onClick={() => {
-                  setShowInstructions(true);
-                  setShowMenu(false);
-                }}
-                className="w-full px-4 py-3 text-left text-white hover:bg-gray-800 flex items-center gap-2"
-              >
-                <Info size={18} />
-                How to Play
-              </button>
-              <button
-                onClick={() => {
-                  setShowConfirmation(true);
-                  setShowMenu(false);
-                }}
-                className="w-full px-4 py-3 text-left text-red-400 hover:bg-gray-800 flex items-center gap-2"
-              >
-                <LogOut size={18} />
-                Leave Game
-              </button>
             </div>
           )}
-        </div>
-      </div>
 
-      {/* Instructions Modal */}
+          {/* Menu Button */}
+          <div className="absolute top-4 right-4 z-10">
+            <button
+              onClick={() => setShowMenu(!showMenu)}
+              className="bg-black/60 backdrop-blur-sm text-white p-2 rounded-lg hover:bg-black/80 transition-all"
+            >
+              <Menu size={20} />
+            </button>
+
+            {/* Dropdown Menu */}
+            {showMenu && (
+              <div className="absolute top-full right-0 mt-2 w-48 bg-black/90 backdrop-blur-sm rounded-lg overflow-hidden border border-gray-800">
+                <button
+                  onClick={() => {
+                    setShowInstructions(true);
+                    setShowMenu(false);
+                  }}
+                  className="w-full px-4 py-3 text-left text-white hover:bg-gray-800 flex items-center gap-2"
+                >
+                  <Info size={18} />
+                  How to Play
+                </button>
+                <button
+                  onClick={() => {
+                    setShowConfirmation(true);
+                    setShowMenu(false);
+                  }}
+                  className="w-full px-4 py-3 text-left text-red-400 hover:bg-gray-800 flex items-center gap-2"
+                >
+                  <LogOut size={18} />
+                  Leave Game
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Instructions Modal - Keep this outside the game content conditional */}
       {showInstructions && (
         <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-gray-900 rounded-lg p-6 max-w-md w-full">
