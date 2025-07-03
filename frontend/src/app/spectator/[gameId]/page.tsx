@@ -37,7 +37,7 @@ interface SpectatorGame {
     duration?: number;
   };
   startTime?: number;
-  score: {
+  score?: {
     red: number;
     blue: number;
   };
@@ -159,7 +159,22 @@ export default function SpectatorGameView() {
     newSocket.on('gameData', (gameData: SpectatorGame) => {
       console.log('Received gameData:', gameData);
       if (gameData && gameData.id === gameId) {
-        setCurrentGame(gameData);
+        // Ensure score is initialized
+        const initializedGameData = {
+          ...gameData,
+          score: gameData.score || { red: 0, blue: 0 },
+          players: gameData.players.map(player => ({
+            ...player,
+            points: player.points || 0,
+            lives: player.lives || 3,
+            health: player.health || 100,
+            status: player.status || 'alive',
+            isAlive: player.isAlive !== undefined ? player.isAlive : true,
+            tags: player.tags || 0,
+            deaths: player.deaths || 0
+          }))
+        };
+        setCurrentGame(initializedGameData);
         setGameNotFound(false);
         setLoadingGame(false);
       }
@@ -455,7 +470,7 @@ export default function SpectatorGameView() {
             <div className="grid grid-cols-3 gap-4 mb-4">
               <div className="bg-red-900/30 p-4 rounded-lg">
                 <h3 className="text-xl font-bold text-red-400 mb-2">Red Team</h3>
-                <div className="text-2xl font-bold">{currentGame.score.red}</div>
+                <div className="text-2xl font-bold">{currentGame.score?.red || 0}</div>
               </div>
               <div className="bg-gray-800 p-4 rounded-lg text-center">
                 <h3 className="text-lg font-semibold mb-2">Game Status</h3>
@@ -463,7 +478,7 @@ export default function SpectatorGameView() {
               </div>
               <div className="bg-blue-900/30 p-4 rounded-lg text-right">
                 <h3 className="text-xl font-bold text-blue-400 mb-2">Blue Team</h3>
-                <div className="text-2xl font-bold">{currentGame.score.blue}</div>
+                <div className="text-2xl font-bold">{currentGame.score?.blue || 0}</div>
               </div>
             </div>
           </div>
