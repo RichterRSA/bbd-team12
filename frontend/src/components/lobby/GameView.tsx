@@ -541,7 +541,7 @@ export const GameView: React.FC<GameViewProps> = ({
   // Notification Container Component
   const NotificationContainer = () => {
     return (
-      <div className="flex flex-col items-center space-y-2 max-w-md">
+      <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-[9999] flex flex-col items-center space-y-2 max-w-md">
         {notifications.map((notification, index) => (
           <div
             key={index}
@@ -657,10 +657,8 @@ export const GameView: React.FC<GameViewProps> = ({
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-black">
-      {/* Show notifications at the top */}
-      <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-[60]">
-        <NotificationContainer />
-      </div>
+      {/* NotificationContainer is now self-positioning */}
+      <NotificationContainer />
 
       {/* Show GameEndScreen when game is won */}
       {gameWonData && <GameEndScreen />}
