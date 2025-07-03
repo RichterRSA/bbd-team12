@@ -8,7 +8,7 @@ export function drawDetections(
   canvasRef: React.RefObject<HTMLCanvasElement | null>, 
   webcamRef: React.RefObject<Webcam | null>,
   highFpsMode: boolean = true,
-  crosshairRadius: number = 80
+  crosshairRadius: number = 60 // Reduced from 80 for easier targeting
 ) {
   // Validate inputs
   if (!detections || !Array.isArray(detections)) {

@@ -1,6 +1,46 @@
 import * as poseDetection from "@tensorflow-models/pose-detection";
 import Webcam from "react-webcam";
 import { extractTorsoRectangle, extractTorsoColorFromRect } from './torsoDetection';
+import { isMobileDevice } from './deviceUtils';
+
+
+// Helper function to detect if device is iPhone specifically
+const isIPhone = () => {
+    return /iPhone|iPod/.test(navigator.userAgent);
+};
+
+// Mobile-optimized crosshair radius based on device - MADE SMALLER FOR EASIER TARGETING
+const getMobileOptimizedRadius = (baseRadius: number, videoWidth: number, videoHeight: number): number => {
+    const mobile = isMobileDevice();
+    const iPhone = isIPhone();
+    
+    // Make the detection area smaller for all devices - easier targeting
+    let scaleFactor = 0.7; // Start with 70% of base radius for better targeting
+    
+    if (mobile) {
+        // For mobile, make it even smaller since touch screens require more precision
+        scaleFactor = iPhone ? 0.6 : 0.65; // iPhone gets smaller radius (60%), other mobile (65%)
+    }
+    
+    const resolutionScale = Math.min(videoWidth, videoHeight) / 480; // Base 480p
+    
+    return Math.round(baseRadius * scaleFactor * resolutionScale);
+};
+
+// Enhanced confidence threshold for mobile devices - MADE MORE FORGIVING
+const getMobileOptimizedConfidence = (): number => {
+    const iPhone = isIPhone();
+    const mobile = isMobileDevice();
+    
+    // Lower confidence thresholds for more forgiving detection
+    if (iPhone) {
+        return 0.25; // iPhone cameras are good, but still be forgiving
+    } else if (mobile) {
+        return 0.2;  // Other mobile devices get even lower threshold
+    } else {
+        return 0.3;  // Desktop/laptop webcams
+    }
+};
 
 // Function to trigger phone vibration
 export const triggerVibration = () => {
@@ -16,7 +56,7 @@ export const triggerVibration = () => {
     return true;
 };
 
-// Helper function to check if a rectangle intersects with a circle
+// Helper function to check if a rectangle intersects with a circle - MADE MORE FORGIVING
 export const rectangleIntersectsCircle = (
   rectMinX: number,
   rectMinY: number, 
@@ -26,6 +66,9 @@ export const rectangleIntersectsCircle = (
   circleY: number,
   radius: number
 ): boolean => {
+  // Make detection more forgiving by expanding the effective radius slightly
+  const forgivingRadius = radius * 1.15; // 15% larger detection area than visual circle
+  
   // Find the closest point on the rectangle to the circle center
   const closestX = Math.max(rectMinX, Math.min(circleX, rectMaxX));
   const closestY = Math.max(rectMinY, Math.min(circleY, rectMaxY));
@@ -36,8 +79,8 @@ export const rectangleIntersectsCircle = (
     Math.pow(circleY - closestY, 2)
   );
   
-  // Rectangle intersects circle if distance is less than or equal to radius
-  return distance <= radius;
+  // Rectangle intersects circle if distance is less than or equal to forgiving radius
+  return distance <= forgivingRadius;
 };
 
 // Function to check if person is inside the crosshair circle using torso box
@@ -46,14 +89,20 @@ export const isPersonInCrosshair = (
     videoWidth: number,
     videoHeight: number,
     crosshairRadius: number,
-    confidenceThreshold: number = 0.3
+    confidenceThreshold?: number
 ): boolean => {
     if (!pose.keypoints || pose.keypoints.length === 0) {
         return false;
     }
 
+    // Use mobile-optimized confidence threshold if not provided
+    const threshold = confidenceThreshold ?? getMobileOptimizedConfidence();
+    
+    // Get mobile-optimized radius
+    const optimizedRadius = getMobileOptimizedRadius(crosshairRadius, videoWidth, videoHeight);
+
     // Extract the torso rectangle using the same logic as the drawing function
-    const torsoRect = extractTorsoRectangle(pose, confidenceThreshold);
+    const torsoRect = extractTorsoRectangle(pose, threshold);
     
     if (!torsoRect) {
         return false;
@@ -63,6 +112,15 @@ export const isPersonInCrosshair = (
     const frameCenterX = videoWidth / 2;
     const frameCenterY = videoHeight / 2;
 
+    // For mobile devices, also check if the pose is stable enough - MADE MORE FORGIVING
+    if (isMobileDevice()) {
+        // Check for minimum number of high-confidence keypoints - reduced requirements
+        const highConfidenceKeypoints = pose.keypoints.filter(kp => kp.score && kp.score > threshold + 0.05); // Reduced from +0.1
+        if (highConfidenceKeypoints.length < 3) { // Reduced from 5 to 3
+            return false;
+        }
+    }
+
     // Check if the torso rectangle intersects with the crosshair circle
     return rectangleIntersectsCircle(
         torsoRect.minX,
@@ -71,7 +129,7 @@ export const isPersonInCrosshair = (
         torsoRect.maxY,
         frameCenterX,
         frameCenterY,
-        crosshairRadius
+        optimizedRadius
     );
 };
 
@@ -120,24 +178,24 @@ export const drawCrosshair = (
     // The crosshairRadius is already calculated based on 480px camera height, so we scale it to display
     const scaledRadius = crosshairRadius * scale;
 
-    // Draw outer circle
-    ctx.strokeStyle = isPersonInside ? color : "rgba(255, 255, 255, 0.8)";
-    ctx.lineWidth = 3;
+    // Draw outer circle - MORE PROMINENT WHEN TARGET DETECTED
+    ctx.strokeStyle = isPersonInside ? "rgba(0, 255, 0, 0.9)" : "rgba(255, 255, 255, 0.8)";
+    ctx.lineWidth = isPersonInside ? 4 : 3; // Thicker when target detected
     ctx.setLineDash([]);
     ctx.beginPath();
     ctx.arc(centerX, centerY, scaledRadius, 0, 2 * Math.PI);
     ctx.stroke();
 
-    // Draw inner circle (smaller)
-    ctx.strokeStyle = isPersonInside ? "rgba(0, 255, 0, 0.6)" : "rgba(255, 255, 255, 0.6)";
-    ctx.lineWidth = 1;
+    // Draw inner circle (smaller) - BRIGHTER WHEN TARGET DETECTED
+    ctx.strokeStyle = isPersonInside ? "rgba(0, 255, 0, 0.8)" : "rgba(255, 255, 255, 0.6)";
+    ctx.lineWidth = isPersonInside ? 2 : 1; // Thicker when target detected
     ctx.beginPath();
     ctx.arc(centerX, centerY, scaledRadius * 0.7, 0, 2 * Math.PI);
     ctx.stroke();
 
-    // Draw crosshair lines
-    ctx.strokeStyle = isPersonInside ? "rgba(0, 255, 0, 0.7)" : "rgba(255, 255, 255, 0.7)";
-    ctx.lineWidth = 2;
+    // Draw crosshair lines - BRIGHTER WHEN TARGET DETECTED
+    ctx.strokeStyle = isPersonInside ? "rgba(0, 255, 0, 0.9)" : "rgba(255, 255, 255, 0.7)";
+    ctx.lineWidth = isPersonInside ? 3 : 2; // Thicker when target detected
     
     // Horizontal line
     ctx.beginPath();
@@ -151,10 +209,10 @@ export const drawCrosshair = (
     ctx.lineTo(centerX, centerY + scaledRadius * 0.3);
     ctx.stroke();
 
-    // Draw center dot
-    ctx.fillStyle = isPersonInside ? "rgba(0, 255, 0, 0.9)" : "rgba(255, 255, 255, 0.9)";
+    // Draw center dot - LARGER WHEN TARGET DETECTED
+    ctx.fillStyle = isPersonInside ? "rgba(0, 255, 0, 1.0)" : "rgba(255, 255, 255, 0.9)";
     ctx.beginPath();
-    ctx.arc(centerX, centerY, 3, 0, 2 * Math.PI);
+    ctx.arc(centerX, centerY, isPersonInside ? 4 : 3, 0, 2 * Math.PI); // Larger when target detected
     ctx.fill();
 };
 

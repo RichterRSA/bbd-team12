@@ -43,12 +43,51 @@ export const GameView: React.FC<GameViewProps> = ({
   const [lastShotTime, setLastShotTime] = useState(0);
   const SHOOT_COOLDOWN = 100; // 0.1 second cooldown between shots
   const [isShooting, setIsShooting] = useState(false);
+  const [screenFlash, setScreenFlash] = useState<'none' | 'damage' | 'hit' | 'shoot'>('none');
+  const [healthDelta, setHealthDelta] = useState<number | null>(null);
+  const [scoreDelta, setScoreDelta] = useState<number | null>(null);
 
   // Function to play the shooting sound
   const playShootSound = useCallback(() => {
-    const audio = new Audio('/sounds/lasershot.wav');
-    audio.volume = 0.3;
-    audio.play();
+    try {
+      const audio = new Audio('/sounds/lasershot.wav');
+      audio.volume = 0.5;
+      audio.play().catch(err => {
+        console.error('Failed to play shoot sound:', err);
+        // Try alternative sound
+        const altAudio = new Audio('/sounds/singleshot.mp3');
+        altAudio.volume = 0.5;
+        altAudio.play().catch(console.error);
+      });
+    } catch (error) {
+      console.error('Error creating shoot sound:', error);
+    }
+  }, []);
+
+  // Function to play hit sound
+  const playHitSound = useCallback(() => {
+    try {
+      const audio = new Audio('/sounds/lasershot2.mp3');
+      audio.volume = 0.7;
+      audio.play().catch(err => {
+        console.error('Failed to play hit sound:', err);
+      });
+    } catch (error) {
+      console.error('Error creating hit sound:', error);
+    }
+  }, []);
+
+  // Function to play damage taken sound
+  const playDamageTakenSound = useCallback(() => {
+    try {
+      const audio = new Audio('/sounds/lasershot.wav');
+      audio.volume = 0.8;
+      audio.play().catch(err => {
+        console.error('Failed to play damage sound:', err);
+      });
+    } catch (error) {
+      console.error('Error creating damage sound:', error);
+    }
   }, []);
 
   // Function to handle shooting
@@ -76,6 +115,7 @@ export const GameView: React.FC<GameViewProps> = ({
     setLastShotTime(now);
     playShootSound();
     setIsShooting(true);
+    setScreenFlash('shoot');
 
     if (!state.isTargetDetected) {
       showNotification('❌ No target in crosshair', 'info');
@@ -124,6 +164,30 @@ export const GameView: React.FC<GameViewProps> = ({
     }
   }, [isShooting]);
 
+  // Add screen flash cleanup
+  useEffect(() => {
+    if (screenFlash !== 'none') {
+      const timer = setTimeout(() => setScreenFlash('none'), 500);
+      return () => clearTimeout(timer);
+    }
+  }, [screenFlash]);
+
+  // Add health delta cleanup
+  useEffect(() => {
+    if (healthDelta !== null) {
+      const timer = setTimeout(() => setHealthDelta(null), 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [healthDelta]);
+
+  // Add score delta cleanup
+  useEffect(() => {
+    if (scoreDelta !== null) {
+      const timer = setTimeout(() => setScoreDelta(null), 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [scoreDelta]);
+
   // Update the crosshair state logic to include shooting animation
   const getCrosshairState = useCallback(() => {
     if (!currentPoses || currentPoses.length === 0 || !webcamRef.current?.video) {
@@ -154,7 +218,7 @@ export const GameView: React.FC<GameViewProps> = ({
     }
 
     // Get the color of the person in crosshair
-    const colorResult = getCrosshairTorsoColor(currentPoses, webcamRef, video.videoWidth, video.videoHeight, 80);
+    const colorResult = getCrosshairTorsoColor(currentPoses, webcamRef, video.videoWidth, video.videoHeight, 60);
     
     if (!colorResult) {
       return { 
@@ -239,12 +303,34 @@ export const GameView: React.FC<GameViewProps> = ({
     socket.on('playerHealthUpdate', (data: { playerId: string; health: number }) => {
       if (currentPlayer && data.playerId === currentPlayer.id) {
         console.log('Health update received:', data);
-        setPlayerHealth(Math.max(0, data.health));
+        const oldHealth = playerHealth;
+        const newHealth = Math.max(0, data.health);
+        setPlayerHealth(newHealth);
+        
+        // Show health change animation
+        const delta = newHealth - oldHealth;
+        if (delta !== 0) {
+          setHealthDelta(delta);
+          
+          if (delta < 0) {
+            // Taking damage
+            setScreenFlash('damage');
+            playDamageTakenSound();
+            showNotification(`💥 -${Math.abs(delta)} HP`, 'error');
+            
+            // Trigger vibration on mobile
+            if (navigator.vibrate) {
+              navigator.vibrate([200, 100, 200]);
+            }
+          }
+        }
+        
         if (data.health <= 20 && data.health > 0) {
           showNotification('⚠️ Low health!', 'error');
         }
         if (data.health <= 0) {
           showNotification('💀 You have been eliminated!', 'error');
+          setScreenFlash('damage');
         }
       }
     });
@@ -252,8 +338,18 @@ export const GameView: React.FC<GameViewProps> = ({
     // Listen for score updates
     socket.on('playerScoreUpdate', (data: { playerId: string; points: number }) => {
       if (currentPlayer && data.playerId === currentPlayer.id) {
-        setPlayerScore(data.points);
-        showNotification('🎯 Score updated!', 'success');
+        const oldScore = playerScore;
+        const newScore = data.points;
+        setPlayerScore(newScore);
+        
+        // Show score change animation
+        const delta = newScore - oldScore;
+        if (delta > 0) {
+          setScoreDelta(delta);
+          setScreenFlash('hit');
+          playHitSound();
+          showNotification(`🎯 +${delta} points!`, 'success');
+        }
       }
     });
 
@@ -261,7 +357,35 @@ export const GameView: React.FC<GameViewProps> = ({
     socket.on('playerDamaged', (data: { targetPlayerId: string; damage: number; attackerName: string }) => {
       if (currentPlayer && data.targetPlayerId === currentPlayer.id) {
         showNotification(`💥 Hit by ${data.attackerName}! (-${data.damage} HP)`, 'error');
-        new Audio('/sounds/lasershot.wav').play().catch(console.error);
+        setScreenFlash('damage');
+        playDamageTakenSound();
+        
+        // Strong vibration for being hit
+        if (navigator.vibrate) {
+          navigator.vibrate([300, 100, 300, 100, 300]);
+        }
+      }
+    });
+
+    // Listen for player elimination
+    socket.on('playerEliminated', (data: { playerId: string; playerName: string; eliminatedBy?: string }) => {
+      if (currentPlayer && data.playerId === currentPlayer.id) {
+        // This player has been eliminated
+        setScreenFlash('damage');
+        setTimeout(() => setScreenFlash('none'), 1000);
+        playDamageTakenSound();
+        
+        // Death vibration pattern
+        if (navigator.vibrate) {
+          navigator.vibrate([500, 200, 500, 200, 500]);
+        }
+        
+        const eliminator = data.eliminatedBy ? ` by ${data.eliminatedBy}` : '';
+        showNotification(`💀 YOU HAVE BEEN ELIMINATED${eliminator}!`, 'error');
+      } else {
+        // Another player was eliminated
+        const eliminator = data.eliminatedBy ? ` by ${data.eliminatedBy}` : '';
+        showNotification(`💀 ${data.playerName} eliminated${eliminator}`, 'info');
       }
     });
 
@@ -269,6 +393,7 @@ export const GameView: React.FC<GameViewProps> = ({
       socket.off('playerHealthUpdate');
       socket.off('playerScoreUpdate');
       socket.off('playerDamaged');
+      socket.off('playerEliminated');
     };
   }, [socket, currentPlayer?.id, showNotification]);
 
@@ -313,6 +438,30 @@ export const GameView: React.FC<GameViewProps> = ({
                 facingMode: isMobileDevice() ? { ideal: "environment" } : { ideal: "user" }
               }}
             />
+            
+            {/* Screen Flash Overlay */}
+            <div className={`absolute inset-0 pointer-events-none transition-opacity duration-300 ${
+              screenFlash === 'damage' ? 'bg-red-500/40 opacity-100' :
+              screenFlash === 'hit' ? 'bg-green-500/30 opacity-100' :
+              screenFlash === 'shoot' ? 'bg-yellow-500/20 opacity-100' :
+              'opacity-0'
+            }`} />
+            
+            {/* Health/Score Delta Animations */}
+            {healthDelta !== null && (
+              <div className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 
+                              text-6xl font-bold pointer-events-none animate-bounce z-50 ${
+                healthDelta < 0 ? 'text-red-500' : 'text-green-500'
+              }`}>
+                {healthDelta > 0 ? '+' : ''}{healthDelta}
+              </div>
+            )}
+            
+            {scoreDelta !== null && (
+              <div className="absolute top-20 right-8 text-4xl font-bold text-yellow-400 pointer-events-none animate-pulse z-50">
+                +{scoreDelta}
+              </div>
+            )}
             
             {/* Game UI Overlays */}
             <div className="absolute inset-0">

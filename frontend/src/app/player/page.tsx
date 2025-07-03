@@ -32,13 +32,15 @@ interface GameState {
   settings: { maxPlayers: number; gameMode: string };
 }
 
-const CROSSHAIR_RADIUS = 80;
+const CROSSHAIR_RADIUS = 60; // Reduced from 80 for easier, more forgiving targeting
 
 export default function PlayerView() {
   const [model, setModel] = useState<poseDetection.PoseDetector | null>(null);
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [player, setPlayer] = useState<Player | null>(null);
   const [notifications, setNotifications] = useState<string[]>([]);
+  const [screenFlash, setScreenFlash] = useState<'none' | 'damage' | 'shoot'>('none');
+  const [showDeathOverlay, setShowDeathOverlay] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
   const [qrCodeText, setQrCodeText] = useState<string | null>(null);
   const webcamRef = useRef<Webcam | null>(null);
@@ -122,9 +124,38 @@ export default function PlayerView() {
       if (currentPlayer) {
         // Check if health decreased (took damage)
         if (player && currentPlayer.health < player.health) {
-          new Audio("/sounds/lasershot.wav").play().catch((e) => console.error("Damage sound error:", e));
+          try {
+            const audio = new Audio("/sounds/lasershot.wav");
+            audio.volume = 0.8;
+            audio.play().catch((e) => console.error("Damage sound error:", e));
+          } catch (error) {
+            console.error("Error creating damage sound:", error);
+          }
+          
+          setScreenFlash('damage');
+          setTimeout(() => setScreenFlash('none'), 500);
           triggerVibration();
+          
+          setNotifications((prev) => [...prev, `💥 Took ${player.health - currentPlayer.health} damage!`].slice(-3));
         }
+        
+        // Check if player just died (health reached 0)
+        if (player && player.health > 0 && currentPlayer.health === 0) {
+          setScreenFlash('damage');
+          setTimeout(() => setScreenFlash('none'), 1000);
+          setShowDeathOverlay(true);
+          
+          // Hide overlay after 3 seconds
+          setTimeout(() => setShowDeathOverlay(false), 3000);
+          
+          // Death vibration
+          if (navigator.vibrate) {
+            navigator.vibrate([500, 200, 500, 200, 500]);
+          }
+          
+          setNotifications((prev) => [...prev, `💀 YOU HAVE BEEN ELIMINATED!`].slice(-3));
+        }
+        
         setPlayer(currentPlayer);
       }
     });
@@ -137,9 +168,49 @@ export default function PlayerView() {
       }
     });
 
+    // Listen for player elimination
+    socketRef.current.on("playerEliminated", (data: { playerId: string; playerName: string; eliminatedBy?: string }) => {
+      if (data.playerId === socketRef.current?.id) {
+        // This player has been eliminated
+        setScreenFlash('damage');
+        setTimeout(() => setScreenFlash('none'), 1000);
+        setShowDeathOverlay(true);
+        
+        // Hide overlay after 3 seconds
+        setTimeout(() => setShowDeathOverlay(false), 3000);
+        
+        // Strong vibration pattern for death
+        if (navigator.vibrate) {
+          navigator.vibrate([500, 200, 500, 200, 500]);
+        }
+        
+        // Play death sound
+        try {
+          const audio = new Audio("/sounds/lasershot.wav");
+          audio.volume = 1.0;
+          audio.play().catch((e) => console.error("Death sound error:", e));
+        } catch (error) {
+          console.error("Error creating death sound:", error);
+        }
+        
+        const eliminator = data.eliminatedBy ? ` by ${data.eliminatedBy}` : '';
+        setNotifications((prev) => [...prev, `💀 YOU HAVE BEEN ELIMINATED${eliminator}!`].slice(-3));
+        
+        // Force update player status
+        if (player) {
+          setPlayer({...player, status: 'dead', health: 0});
+        }
+      } else {
+        // Another player was eliminated
+        const eliminator = data.eliminatedBy ? ` by ${data.eliminatedBy}` : '';
+        setNotifications((prev) => [...prev, `💀 ${data.playerName} eliminated${eliminator}`].slice(-3));
+      }
+    });
+
     return () => {
       socketRef.current?.off("gameStateUpdate");
       socketRef.current?.off("notification");
+      socketRef.current?.off("playerEliminated");
     };
   }, []);
 
@@ -169,8 +240,21 @@ export default function PlayerView() {
           weapon: player.weapon,
         });
         lastShotTimeRef.current = now;
+        
+        // Enhanced shooting effects
+        setScreenFlash('shoot');
+        setTimeout(() => setScreenFlash('none'), 200);
         triggerVibration();
-        new Audio("/sounds/singleshot.mp3").play().catch((e) => console.error("Sound error:", e));
+        
+        try {
+          const audio = new Audio("/sounds/singleshot.mp3");
+          audio.volume = 0.7;
+          audio.play().catch((e) => console.error("Sound error:", e));
+        } catch (error) {
+          console.error("Error creating shoot sound:", error);
+        }
+        
+        setNotifications((prev) => [...prev, "🎯 Shot fired!"].slice(-3));
       }
     };
 
@@ -231,12 +315,46 @@ export default function PlayerView() {
 
   if (player && player.status === "dead") {
     return (
-      <div className="min-h-screen bg-black text-white flex items-center justify-center p-4">
-        <div className="text-center">
-          <h1 className="text-4xl font-bold text-red-500 mb-4">Game Over</h1>
-          <p className="text-lg">You have been eliminated. Check the scores at /scores.</p>
+      <div className="min-h-screen bg-black text-white flex items-center justify-center p-4 relative overflow-hidden">
+        {/* Dramatic red overlay */}
+        <div className="absolute inset-0 bg-red-900/30 animate-pulse"></div>
+        
+        {/* Death screen content */}
+        <div className="text-center z-10 max-w-md">
+          <h1 className="text-6xl font-bold text-red-500 mb-6 animate-bounce">💀</h1>
+          <h2 className="text-4xl font-bold text-red-400 mb-4 animate-pulse">ELIMINATED!</h2>
+          <p className="text-xl mb-6">You have been taken out of the game.</p>
+          
+          {player.health === 0 && (
+            <div className="bg-red-900/50 rounded-lg p-4 mb-6">
+              <p className="text-lg">Final Stats:</p>
+              <div className="grid grid-cols-2 gap-4 mt-2 text-sm">
+                <div>Health: <span className="text-red-400">0 HP</span></div>
+                <div>Points: <span className="text-yellow-400">{player.points}</span></div>
+                <div>Team: <span className={player.team === 'red' ? 'text-red-400' : 'text-blue-400'}>{player.team}</span></div>
+                <div>Lives: <span className="text-orange-400">{player.lives}</span></div>
+              </div>
+            </div>
+          )}
+          
+          <p className="text-lg text-gray-300">Watch the game continue or check the spectator view.</p>
+          
           {qrCodeText && (
-            <div className="text-2xl text-green-500 mt-4">{qrCodeText}</div>
+            <div className="text-2xl text-green-500 mt-6 bg-black/50 px-4 py-2 rounded">
+              QR: {qrCodeText}
+            </div>
+          )}
+          
+          {/* Last notifications */}
+          {notifications.length > 0 && (
+            <div className="mt-6 bg-black/50 rounded-lg p-4">
+              <h3 className="text-lg font-semibold mb-2">Recent Events:</h3>
+              {notifications.slice(-3).map((note, index) => (
+                <div key={index} className="text-sm text-gray-300 mb-1">
+                  {note}
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </div>
@@ -257,6 +375,14 @@ export default function PlayerView() {
           }}
         />
         <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full" />
+        
+        {/* Screen Flash Overlay */}
+        <div className={`absolute inset-0 pointer-events-none transition-opacity duration-300 ${
+          screenFlash === 'damage' ? 'bg-red-500/50 opacity-100' :
+          screenFlash === 'shoot' ? 'bg-yellow-500/30 opacity-100' :
+          'opacity-0'
+        }`} />
+        
         {/* QR Code Text Overlay */}
         {qrCodeText && (
           <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-2xl text-green-500 bg-black/50 px-4 py-2 rounded pointer-events-none">
@@ -264,6 +390,20 @@ export default function PlayerView() {
           </div>
         )}
       </div>
+
+      {/* Immediate Death Notification Overlay */}
+      {showDeathOverlay && (
+        <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-50 animate-fade-in">
+          <div className="text-center">
+            <h1 className="text-8xl animate-bounce mb-4">💀</h1>
+            <h2 className="text-4xl font-bold text-red-500 mb-4 animate-pulse">ELIMINATED!</h2>
+            <p className="text-xl text-white">You have been eliminated from the game.</p>
+            <div className="mt-4 text-lg text-gray-300">
+              Switching to death screen...
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Player Interface Overlay */}
       <div className="absolute inset-0 pointer-events-none">
