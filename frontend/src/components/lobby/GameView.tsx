@@ -83,8 +83,13 @@ export const GameView: React.FC<GameViewProps> = ({
 
     socket.on('playerRespawn', (data: { playerId: string }) => {
       if (currentPlayer && data.playerId === currentPlayer.id) {
+        // Reset all death-related states
         setRespawnCountdown(null);
+        currentPlayer.status = 'alive';
+        currentPlayer.health = 100;
+        setPlayerHealth(100);
         showNotification('🔄 You have respawned!', 'success');
+        
         // Strong vibration for respawn
         if (navigator.vibrate) {
           navigator.vibrate([100, 50, 100]);
@@ -241,6 +246,15 @@ export const GameView: React.FC<GameViewProps> = ({
 
   // Update the crosshair state logic to include shooting animation
   const getCrosshairState = useCallback(() => {
+    if (currentPlayer?.status === 'dead') {
+      return { 
+        isTargetDetected: false, 
+        color: "rgba(128, 128, 128, 0.6)",
+        debugInfo: { detectedColor: null, playerMatches: [] },
+        isShooting: false
+      };
+    }
+
     if (!currentPoses || currentPoses.length === 0 || !webcamRef.current?.video) {
       return { 
         isTargetDetected: false, 
@@ -308,7 +322,7 @@ export const GameView: React.FC<GameViewProps> = ({
       },
       isShooting
     };
-  }, [currentPoses, webcamRef, gameState.players, isShooting]);
+  }, [currentPoses, webcamRef, gameState?.players, isShooting, currentPlayer?.status]);
 
   const parseRgb = (color: string) => {
     const match = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
@@ -468,6 +482,8 @@ export const GameView: React.FC<GameViewProps> = ({
 
   // Debug output for pose detection
   useEffect(() => {
+    if (currentPlayer?.status === 'dead') return; // Skip if player is dead
+    
     if (currentPoses.length > 0) {
       const video = webcamRef.current?.video;
       if (video) {
@@ -480,7 +496,7 @@ export const GameView: React.FC<GameViewProps> = ({
         });
       }
     }
-  }, [currentPoses, getCrosshairState]);
+  }, [currentPoses, getCrosshairState, currentPlayer?.status]);
 
   // State for notifications
   const [notifications, setNotifications] = useState<Array<{ message: string; type: 'success' | 'error' | 'info' }>>([]);
@@ -517,7 +533,7 @@ export const GameView: React.FC<GameViewProps> = ({
   return (
     <div className="fixed inset-0 overflow-hidden bg-black">
       {/* Death Screen - Must be first to ensure it's shown above everything else when active */}
-      {currentPlayer && (currentPlayer.status === 'dead' || currentPlayer.health <= 0) && (
+      {currentPlayer?.status === 'dead' && (
         <div className="fixed inset-0 z-[9999] bg-red-900/95 backdrop-blur-md flex items-center justify-center">
           <div className="text-center text-white p-8 space-y-6 max-w-2xl w-full">
             <h1 className="text-8xl font-bold animate-pulse mb-8">TAGGED!</h1>
@@ -682,12 +698,14 @@ export const GameView: React.FC<GameViewProps> = ({
                 {/* Target UI elements end */}
               </div>
               
-              {/* Pose detection overlay */}
-              <canvas
-                ref={canvasRef}
-                className="absolute top-0 left-0 w-full h-full pointer-events-none opacity-60"
-                style={{ mixBlendMode: 'screen' }}
-              />
+              {/* Only render canvas when player is alive */}
+              {currentPlayer?.status !== 'dead' && (
+                <canvas
+                  ref={canvasRef}
+                  className="absolute top-0 left-0 w-full h-full pointer-events-none opacity-60"
+                  style={{ mixBlendMode: 'screen' }}
+                />
+              )}
             </div>
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-gray-900">
