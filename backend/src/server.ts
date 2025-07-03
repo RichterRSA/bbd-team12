@@ -555,37 +555,7 @@ io.on('connection', (socket: Socket) => {
     }
   });
 
-  socket.on('skipColorConfirmation', (gameId: string) => {
-    try {
-      const game = games[gameId];
-      if (!game || game.status !== 'confirming-colors') {
-        socket.emit('error', 'Game not in color confirmation phase');
-        return;
-      }
-      
-      const player = game.players.find(p => p.id === socket.id);
-      if (!player || !player.isHost) {
-        socket.emit('error', 'Only the host can skip color confirmation');
-        return;
-      }
-      
-      console.log(`⏭️ Host ${player.name} skipped color confirmation for game ${gameId}`);
-      game.status = 'waiting';
-      game.confirmationPhase = undefined;
-      
-      // Clear any partial confirmations
-      game.players.forEach(p => {
-        p.shirtColor = undefined;
-        p.isConfirmed = false;
-      });
-      
-      io.to(gameId).emit('colorConfirmationSkipped', { gameState: game });
-      logGameState(gameId);
-    } catch (error) {
-      console.error('❌ Error skipping color confirmation:', error);
-      socket.emit('error', 'Failed to skip color confirmation');
-    }
-  });
+  // Color confirmation cannot be skipped - removed skip functionality
 
   socket.on('requestGameState', (gameId: string) => {
     try {

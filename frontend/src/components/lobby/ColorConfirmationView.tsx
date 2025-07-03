@@ -23,7 +23,6 @@ interface ColorConfirmationViewProps {
   currentPoses: poseDetection.Pose[];
   poseModel: poseDetection.PoseDetector | null;
   isSubmittingColor: boolean;
-  handleSkipColorConfirmation: () => void;
   handleSubmitColorConfirmation: (targetId: string, color: string) => void;
   startColorScan: () => void;
   stopColorScan: () => void;
@@ -47,7 +46,6 @@ export const ColorConfirmationView: React.FC<ColorConfirmationViewProps> = ({
   currentPoses,
   poseModel,
   isSubmittingColor,
-  handleSkipColorConfirmation,
   handleSubmitColorConfirmation,
   startColorScan,
   stopColorScan,
@@ -364,13 +362,7 @@ export const ColorConfirmationView: React.FC<ColorConfirmationViewProps> = ({
 
         {/* Host controls */}
         {isHost && (
-          <div className="mt-6 pt-6 border-t border-gray-700 flex justify-between">
-            <button
-              onClick={handleSkipColorConfirmation}
-              className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-all duration-200"
-            >
-              Skip Color Confirmation
-            </button>
+          <div className="mt-6 pt-6 border-t border-gray-700 flex justify-end">
             <button
               onClick={() => setShowConfirmation(true)}
               className="px-4 py-2 bg-red-700 text-white rounded-lg hover:bg-red-600 transition-all duration-200"

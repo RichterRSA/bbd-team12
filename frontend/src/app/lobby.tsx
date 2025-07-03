@@ -631,11 +631,7 @@ const Lobby = () => {
     showNotification('Starting color confirmation...', 'info');
   }, [socket, gameId, isHost]);
 
-  const handleSkipColorConfirmation = useCallback(() => {
-    if (!socket || !gameId || !isHost) return;
-    
-    socket.emit('skipColorConfirmation', gameId);
-  }, [socket, gameId, isHost]);
+  // Color confirmation cannot be skipped - removed skip handler
 
   const handleSubmitColorConfirmation = useCallback((targetPlayerId: string, color: string) => {
     if (!socket || !gameId || !color) return;
@@ -951,7 +947,7 @@ const Lobby = () => {
           currentPoses={currentPoses}
           poseModel={poseModel}
           isSubmittingColor={isSubmittingColor}
-          handleSkipColorConfirmation={handleSkipColorConfirmation}
+          // Skip functionality removed
           handleSubmitColorConfirmation={handleSubmitColorConfirmation}
           startColorScan={startColorScan}
           stopColorScan={stopColorScan}

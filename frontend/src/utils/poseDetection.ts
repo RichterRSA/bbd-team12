@@ -97,34 +97,34 @@ export function drawDetections(
     ctx.lineWidth = 3;     
 
   // Draw keypoints - optimized for high framerates
-  keypoints.forEach(keypoint => {
-    if (keypoint.score && keypoint.score > confidenceThreshold) {
-      // Validate keypoint coordinates
-      if (!isFinite(keypoint.x) || !isFinite(keypoint.y)) {
-        console.warn("Non-finite keypoint coordinates:", keypoint);
-        return;
-      }
+  // keypoints.forEach(keypoint => {
+  //   if (keypoint.score && keypoint.score > confidenceThreshold) {
+  //     // Validate keypoint coordinates
+  //     if (!isFinite(keypoint.x) || !isFinite(keypoint.y)) {
+  //       console.warn("Non-finite keypoint coordinates:", keypoint);
+  //       return;
+  //     }
 
-      const x = keypoint.x;
-      const y = keypoint.y;
+  //     const x = keypoint.x;
+  //     const y = keypoint.y;
 
-      // Scale the coordinates to match the displayed video size with objectFit: 'cover' accounting
-      const scaledX = x * scaleX + offsetX;
-      const scaledY = y * scaleY + offsetY;
+  //     // Scale the coordinates to match the displayed video size with objectFit: 'cover' accounting
+  //     const scaledX = x * scaleX + offsetX;
+  //     const scaledY = y * scaleY + offsetY;
 
-      // Validate scaled coordinates
-      if (!isFinite(scaledX) || !isFinite(scaledY)) {
-        console.warn("Non-finite scaled coordinates:", { scaledX, scaledY, x, y, scaleX, scaleY });
-        return;
-      }
+  //     // Validate scaled coordinates
+  //     if (!isFinite(scaledX) || !isFinite(scaledY)) {
+  //       console.warn("Non-finite scaled coordinates:", { scaledX, scaledY, x, y, scaleX, scaleY });
+  //       return;
+  //     }
 
-      // Draw filled circle for each keypoint
-      ctx.fillStyle = "rgba(255, 0, 0, 0.9)"; // Semi-transparent red
-      ctx.beginPath();
-      ctx.arc(scaledX, scaledY, 4, 0, 2 * Math.PI);
-      ctx.fill();
-    }
-  });
+  //     // Draw filled circle for each keypoint
+  //     ctx.fillStyle = "rgba(255, 0, 0, 0.9)"; // Semi-transparent red
+  //     ctx.beginPath();
+  //     ctx.arc(scaledX, scaledY, 4, 0, 2 * Math.PI);
+  //     ctx.fill();
+  //   }
+  // });
 
     // Draw the torso box with error handling
     try {
