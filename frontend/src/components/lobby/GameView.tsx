@@ -608,39 +608,44 @@ export const GameView: React.FC<GameViewProps> = ({
 
   // Victory/Defeat Screen Component
   const GameEndScreen = () => {
-    if (!gameWonData || !currentPlayer) return null;
+    if (!gameWonData || !currentPlayer || !gameState) {
+      console.log('Missing data for GameEndScreen:', { gameWonData, currentPlayer, gameState });
+      return null;
+    }
 
     const isVictory = currentPlayer.team === gameWonData.winningTeam;
+    console.log('Rendering game end screen:', { isVictory, currentPlayer, gameWonData });
 
     return (
       <div className="fixed inset-0 z-[9999] bg-black/95 backdrop-blur-md flex items-center justify-center">
         <div className="text-center text-white p-8 space-y-8 max-w-2xl w-full">
-          <h1 className={`text-8xl font-bold animate-pulse mb-8 ${
-            isVictory ? 'text-green-500' : 'text-red-500'
+          <h1 className={`text-8xl font-bold mb-8 ${
+            isVictory ? 'text-green-500 animate-bounce' : 'text-red-500 animate-pulse'
           }`}>
             {isVictory ? 'VICTORY!' : 'DEFEAT'}
           </h1>
           
           <div className="text-2xl space-y-4">
-            <div className="mb-8">
-              <h2 className="text-3xl font-semibold mb-4">Top Player</h2>
-              <p className="text-yellow-400">{gameWonData.topPlayer.name}</p>
-              <p className="text-yellow-400">{gameWonData.topPlayer.points} points</p>
+            <div className="mb-8 transform hover:scale-105 transition-transform">
+              <h2 className="text-4xl font-semibold mb-4 text-yellow-300">Top Player</h2>
+              <p className="text-3xl font-bold text-yellow-400">{gameWonData.topPlayer.name}</p>
+              <p className="text-3xl font-bold text-yellow-400">{gameWonData.topPlayer.points} points</p>
             </div>
             
-            <div className="mb-8">
-              <h2 className="text-3xl font-semibold mb-4">Your Score</h2>
-              <p className="text-blue-400">{currentPlayer.points} points</p>
+            <div className="mb-8 transform hover:scale-105 transition-transform">
+              <h2 className="text-4xl font-semibold mb-4 text-blue-300">Your Score</h2>
+              <p className="text-3xl font-bold text-blue-400">{currentPlayer.points} points</p>
             </div>
             
             <button
               onClick={() => {
+                console.log('Return to home clicked');
                 if (socket) {
                   socket.emit('leaveGame', gameState.id);
                 }
                 window.location.href = '/';
               }}
-              className="px-8 py-4 bg-blue-600 hover:bg-blue-700 rounded-lg text-2xl font-semibold transition-colors"
+              className="px-8 py-4 bg-blue-600 hover:bg-blue-700 rounded-lg text-2xl font-semibold transition-colors transform hover:scale-105 hover:shadow-lg hover:shadow-blue-500/50"
             >
               Return to Home
             </button>
@@ -652,16 +657,19 @@ export const GameView: React.FC<GameViewProps> = ({
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-black">
-      {/* Move notifications to top of screen */}
+      {/* Show notifications at the top */}
       <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-[60]">
         <NotificationContainer />
       </div>
 
+      {/* Show GameEndScreen when game is won */}
+      {gameWonData && <GameEndScreen />}
+      
       {/* Death Screen */}
       {currentPlayer?.status === 'dead' && !gameWonData && <DeathScreen />}
 
-      {/* Only render game content if player is alive */}
-      {(!currentPlayer || (currentPlayer.status !== 'dead' && !gameWonData)) && (
+      {/* Only render game content if not showing end screen */}
+      {!gameWonData && (
         <div className="relative w-full h-full">
           {/* Move notifications to top of screen */}
           <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50">
