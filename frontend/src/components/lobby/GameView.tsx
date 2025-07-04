@@ -240,67 +240,98 @@ export const GameView: React.FC<GameViewProps> = ({
 
   // Function to handle shooting
   const handleShoot = useCallback(() => {
-    if (currentPlayer?.status === 'dead') {
-      handleNotification('💀 You are eliminated!', 'error');
-      return;
-    }
-
-    const now = Date.now();
-    if (now - lastShotTime < SHOOT_COOLDOWN) {
-      handleNotification('🕒 Laser cooling down...', 'info');
-      return;
-    }
-
-    // Check if player is in a valid state to shoot
-    if (!currentPlayer) {
-      handleNotification('⚠️ Player not found', 'error');
-      return;
-    }
-
-    const state = getCrosshairState();
-    
-    // Always play sound and show animation when attempting to shoot
-    setLastShotTime(now);
-    playShootSound();
-    setIsShooting(true);
-    setScreenFlash('shoot');
-
-    if (!state.isTargetDetected) {
-      handleNotification('❌ No target in crosshair', 'info');
-      return;
-    }
-
-    if (state.debugInfo.playerMatches.length === 0) {
-      handleNotification('🎯 Missed! No player detected', 'info');
-      return;
-    }
-
-    // Find the closest matching player
-    const closestMatch = state.debugInfo.playerMatches.reduce((prev, current) => 
-      prev.distance < current.distance ? prev : current
-    );
-    
-    // Only deal damage if the match is close enough and it's an enemy player
-    if (closestMatch.distance < 30) {
-      if (closestMatch.player.team === currentPlayer.team) {
-        handleNotification('⚠️ Friendly fire is not allowed!', 'error');
+    try {
+      if (currentPlayer?.status === 'dead') {
+        handleNotification('💀 You are eliminated!', 'error');
         return;
       }
+
+      const now = Date.now();
+      if (now - lastShotTime < SHOOT_COOLDOWN) {
+        handleNotification('🕒 Laser cooling down...', 'info');
+        return;
+      }
+
+      // Check if player is in a valid state to shoot
+      if (!currentPlayer) {
+        handleNotification('⚠️ Player not found', 'error');
+        return;
+      }
+
+      const state = getCrosshairState();
       
-      if (closestMatch.player.status === 'dead') {
-        handleNotification('💀 Target is already eliminated!', 'info');
+      // Always play sound and show animation when attempting to shoot
+      setLastShotTime(now);
+      playShootSound();
+      setIsShooting(true);
+      setScreenFlash('shoot');
+
+      if (!state.isTargetDetected) {
+        handleNotification('❌ No target in crosshair', 'info');
         return;
-      }      // Emit the damage event to the server
-      if (socket && gameState.id && closestMatch.player.id && currentPlayer) {
-        socket.emit('playerDamage', {
-          gameId: gameState.id,
-          targetPlayerId: closestMatch.player.id,
-          attackerId: currentPlayer.id
-        });
-        handleNotification(`🎯 Shot fired at ${closestMatch.player.name}!`, 'success');
       }
-    } else {
-      handleNotification('📏 Target too far or not clear enough', 'info');
+
+      if (!state.debugInfo || !state.debugInfo.playerMatches || state.debugInfo.playerMatches.length === 0) {
+        handleNotification('🎯 Missed! No player detected', 'info');
+        return;
+      }
+
+      // Find the closest matching player with additional safety checks
+      const validMatches = state.debugInfo.playerMatches.filter(match => 
+        match && match.player && typeof match.distance === 'number'
+      );
+
+      if (validMatches.length === 0) {
+        handleNotification('🎯 Missed! No valid targets', 'info');
+        return;
+      }
+
+      const closestMatch = validMatches.reduce((prev, current) => {
+        if (!prev || !current) return prev || current;
+        return (prev.distance < current.distance) ? prev : current;
+      });
+      
+      // Ensure we have a valid target
+      if (!closestMatch || !closestMatch.player) {
+        handleNotification('🎯 Invalid target', 'info');
+        return;
+      }
+
+      // Only deal damage if the match is close enough and it's an enemy player
+      if (closestMatch.distance < 30) {
+        // Check if target player exists and has required properties
+        if (!closestMatch.player.team || !closestMatch.player.id || !closestMatch.player.name) {
+          handleNotification('🎯 Invalid target data', 'error');
+          return;
+        }
+
+        if (closestMatch.player.team === currentPlayer.team) {
+          handleNotification('⚠️ Friendly fire is not allowed!', 'error');
+          return;
+        }
+        
+        if (closestMatch.player.status === 'dead') {
+          handleNotification('💀 Target is already eliminated!', 'info');
+          return;
+        }
+
+        // Emit the damage event to the server with additional validation
+        if (socket && gameState?.id && closestMatch.player.id && currentPlayer?.id) {
+          socket.emit('playerDamage', {
+            gameId: gameState.id,
+            targetPlayerId: closestMatch.player.id,
+            attackerId: currentPlayer.id
+          });
+          handleNotification(`🎯 Shot fired at ${closestMatch.player.name}!`, 'success');
+        } else {
+          handleNotification('⚠️ Unable to fire - connection issue', 'error');
+        }
+      } else {
+        handleNotification('📏 Target too far or not clear enough', 'info');
+      }
+    } catch (error) {
+      console.error('Error in handleShoot:', error);
+      handleNotification('⚠️ Shooting error occurred', 'error');
     }
   }, [lastShotTime, socket, gameState?.id, currentPlayer, playShootSound]);
 
@@ -399,19 +430,33 @@ export const GameView: React.FC<GameViewProps> = ({
 
     // Analyze color matches with all players' shirt colors
     const playerMatches = gameState.players?.map(player => {
-      // Use player's confirmed shirt color if available, otherwise use team color as fallback
-      const playerColor = player.shirtColor || (player.team === 'red' ? 'rgb(220, 50, 50)' : 'rgb(50, 50, 220)');
-      const match = isColorMatch(colorResult.color, playerColor);
-      
-      return {
-        player,
-        distance: colorDistance(
-          parseRgb(colorResult.color) || { r: 0, g: 0, b: 0 },
-          parseRgb(playerColor) || { r: 0, g: 0, b: 0 }
-        ),
-        match
-      };
-    }) || [];
+      try {
+        // Ensure player object is valid
+        if (!player || typeof player !== 'object') {
+          return null;
+        }
+
+        // Use player's confirmed shirt color if available, otherwise use team color as fallback
+        const playerColor = player.shirtColor || (player.team === 'red' ? 'rgb(220, 50, 50)' : 'rgb(50, 50, 220)');
+        const match = isColorMatch(colorResult.color, playerColor);
+        
+        const parsedColorResult = parseRgb(colorResult.color);
+        const parsedPlayerColor = parseRgb(playerColor);
+        
+        if (!parsedColorResult || !parsedPlayerColor) {
+          return null;
+        }
+
+        return {
+          player,
+          distance: colorDistance(parsedColorResult, parsedPlayerColor),
+          match
+        };
+      } catch (error) {
+        console.error('Error processing player match:', error, player);
+        return null;
+      }
+    }).filter(match => match !== null) || [];
 
     // Check if any player color matches
     const hasPlayerMatch = playerMatches.some(pm => pm.match);
@@ -459,26 +504,32 @@ export const GameView: React.FC<GameViewProps> = ({
 
   // Function to determine if a color is close enough to be considered a match
   const isColorMatch = (colorA: string, colorB: string) => {
-    const parseRgb = (color: string) => {
-      const match = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
-      if (match) {
-        return {
-          r: parseInt(match[1]),
-          g: parseInt(match[2]),
-          b: parseInt(match[3])
-        };
-      }
-      return null;
-    };
+    try {
+      const parseRgb = (color: string) => {
+        if (typeof color !== 'string') return null;
+        const match = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+        if (match) {
+          return {
+            r: parseInt(match[1]),
+            g: parseInt(match[2]),
+            b: parseInt(match[3])
+          };
+        }
+        return null;
+      };
 
-    const rgbA = parseRgb(colorA);
-    const rgbB = parseRgb(colorB);
+      const rgbA = parseRgb(colorA);
+      const rgbB = parseRgb(colorB);
 
-    if (!rgbA || !rgbB) return false;
+      if (!rgbA || !rgbB) return false;
 
-    // Calculate color difference
-    const distance = colorDistance(rgbA, rgbB);
-    return distance < 30; // Increased threshold for more lenient color matching
+      // Calculate color difference
+      const distance = colorDistance(rgbA, rgbB);
+      return distance < 30; // Increased threshold for more lenient color matching
+    } catch (error) {
+      console.error('Error in isColorMatch:', error, { colorA, colorB });
+      return false;
+    }
   };
 
   // Listen for game updates
