@@ -583,10 +583,12 @@ export const GameView: React.FC<GameViewProps> = ({
     const safeMessage = typeof message === 'string' ? message : String(message);
     const safeType = ['success', 'error', 'info'].includes(type) ? type : 'info';
     
-    setNotifications(prev => [...prev, { message: safeMessage, type: safeType }]);
+    // Only show the latest notification by replacing the entire array
+    setNotifications([{ message: safeMessage, type: safeType }]);
+    
     // Remove notification after 3 seconds
     setTimeout(() => {
-      setNotifications(prev => prev.slice(1));
+      setNotifications([]);
     }, 3000);
   }, []);
 
