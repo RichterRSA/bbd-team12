@@ -76,44 +76,44 @@ const games: GameCollection = {};
 function broadcastGameList(): void {
   const availableGames = Object.values(games)
     .filter(g => g.status === 'waiting');
-  console.log(`📢 Broadcasting updated game list: ${availableGames.length} available games`);
+  console.log(`Broadcasting updated game list: ${availableGames.length} available games`);
   io.emit('gameList', availableGames);
 }
 
 function logGameState(gameId: string): void {
   const game = games[gameId];
   if (!game) {
-    console.log(`❓ Game ${gameId} not found`);
+    console.log(`Game ${gameId} not found`);
     return;
   }
   
   const redTeam = game.players.filter(p => p.team === 'red');
   const blueTeam = game.players.filter(p => p.team === 'blue');
   
-  console.log('\n📊 GAME STATE UPDATE ------------');
-  console.log(`🎮 Game: ${game.name} (${gameId})`);
-  console.log(`📋 Status: ${game.status}`);
-  console.log(`👥 Players: ${game.players.length}/${game.settings.maxPlayers}`);
-  console.log(`🔴 Red Team (${redTeam.length}): ${redTeam.map(p => `${p.name}${p.isHost ? '👑' : ''}`).join(', ')}`);
-  console.log(`🔵 Blue Team (${blueTeam.length}): ${blueTeam.map(p => `${p.name}${p.isHost ? '👑' : ''}`).join(', ')}`);
+  console.log('\nGAME STATE UPDATE ------------');
+  console.log(`Game: ${game.name} (${gameId})`);
+  console.log(`Status: ${game.status}`);
+  console.log(`Players: ${game.players.length}/${game.settings.maxPlayers}`);
+  console.log(`Red Team (${redTeam.length}): ${redTeam.map(p => `${p.name}${p.isHost ? '' : ''}`).join(', ')}`);
+  console.log(`Blue Team (${blueTeam.length}): ${blueTeam.map(p => `${p.name}${p.isHost ? '' : ''}`).join(', ')}`);
   console.log('----------------------------------\n');
 }
 
 function removePlayerFromGame(socketId: string, gameId: string): void {
   const game = games[gameId];
   if (!game) {
-    console.log(`🚫 Game ${gameId} not found when trying to remove player with socket ID ${socketId}`);
+    console.log(`Game ${gameId} not found when trying to remove player with socket ID ${socketId}`);
     return;
   }
   
   const playerIndex = game.players.findIndex(p => p.id === socketId);
   if (playerIndex === -1) {
-    console.log(`🚫 Player with socket ID ${socketId} not found in game ${gameId}`);
+    console.log(`Player with socket ID ${socketId} not found in game ${gameId}`);
     return;
   }
   
   const player = game.players[playerIndex];
-  console.log(`👋 Removing player ${player.name} (${socketId}) from game ${gameId}`);
+  console.log(`Removing player ${player.name} (${socketId}) from game ${gameId}`);
   
   // Notify other players about the disconnection before removing
   io.to(gameId).emit('playerDisconnected', {
@@ -123,7 +123,7 @@ function removePlayerFromGame(socketId: string, gameId: string): void {
 
   // Handle color confirmation phase - return all players to lobby
   if (game.status === 'confirming-colors' && game.confirmationPhase) {
-    console.log(`🎨 Player disconnected during color confirmation - returning all players to lobby`);
+    console.log(`Player disconnected during color confirmation - returning all players to lobby`);
     
     // Reset game to waiting state
     game.status = 'waiting';
@@ -153,7 +153,7 @@ function removePlayerFromGame(socketId: string, gameId: string): void {
   
   // Handle empty games
   if (game.players.length === 0) {
-    console.log(`🗑️ Deleting empty game ${gameId}`);
+    console.log(`Deleting empty game ${gameId}`);
     delete games[gameId];
     broadcastGameList();
   } 
@@ -161,7 +161,7 @@ function removePlayerFromGame(socketId: string, gameId: string): void {
   else if (!game.players.some(p => p.isHost)) {
     const newHost = game.players[0];
     newHost.isHost = true;
-    console.log(`👑 Host left, new host assigned: ${newHost.name} in game ${gameId}`);
+    console.log(`Host left, new host assigned: ${newHost.name} in game ${gameId}`);
     
     // Notify remaining players
     io.to(gameId).emit('gameStateUpdate', game);
@@ -175,7 +175,7 @@ function removePlayerFromGame(socketId: string, gameId: string): void {
   if (typeof logGameState === 'function') {
     logGameState(gameId);
   } else {
-    console.log(`📊 Game state for ${gameId} after player removal: ${game.players.length} players, status: ${game.status}`);
+    console.log(`Game state for ${gameId} after player removal: ${game.players.length} players, status: ${game.status}`);
   }
 }
 
@@ -186,7 +186,7 @@ function removePlayerFromGames(socketId: string): void {
     const player = game.players.find(p => p.id === socketId);
     
     if (player) {
-      console.log(`👋 Player ${player.name} (${socketId}) disconnected from game ${gameId} (status: ${game.status}) - removing immediately`);
+      console.log(`Player ${player.name} (${socketId}) disconnected from game ${gameId} (status: ${game.status}) - removing immediately`);
       
       // Always remove the player immediately, regardless of game status
       removePlayerFromGame(socketId, gameId);
@@ -232,33 +232,33 @@ function formatColorValue(color: any): string {
 
 // Socket.IO event handlers
 io.on('connection', (socket: Socket) => {
-  console.log(`🟢 New client connected: ${socket.id}`);
+  console.log(`New client connected: ${socket.id}`);
   
   // Send current game list to new client
   const availableGames = Object.values(games).filter(g => g.status === 'waiting');
-  console.log(`📤 Sending game list to new client (${availableGames.length} games)`);
+  console.log(`Sending game list to new client (${availableGames.length} games)`);
   socket.emit('gameList', availableGames);
 
   // Handle socket disconnection
   socket.on('disconnect', (reason: string) => {
-    console.log(`🔴 Client disconnected: ${socket.id} (reason: ${reason})`);
+    console.log(`Client disconnected: ${socket.id} (reason: ${reason})`);
     
     // Remove player from all games they might be in
     removePlayerFromGames(socket.id);
     
     // Log current game count after cleanup
-    console.log(`📊 Games after disconnect cleanup: ${Object.keys(games).length}`);
+    console.log(`Games after disconnect cleanup: ${Object.keys(games).length}`);
   });
 
   socket.on('requestGameList', () => {
-    console.log(`🔄 Client ${socket.id} requested game list refresh`);
+    console.log(`Client ${socket.id} requested game list refresh`);
     const availableGames = Object.values(games).filter(g => g.status === 'waiting');
     socket.emit('gameList', availableGames);
   });
 
   socket.on('createGame', (data: { playerName: string; gameSettings: GameSettings }) => {
     try {
-      console.log(`🎮 Creating game for ${data.playerName} (${socket.id})`);
+      console.log(`Creating game for ${data.playerName} (${socket.id})`);
       const gameId = 'game_' + Math.random().toString(36).substring(2, 9);
       const game: Game = {
         id: gameId,
@@ -281,37 +281,37 @@ io.on('connection', (socket: Socket) => {
       
       games[gameId] = game;
       socket.join(gameId);
-      console.log(`✅ Game created: ${gameId} by ${data.playerName} (${socket.id})`);
-      console.log(`💾 Current games: ${Object.keys(games).length}`);
+      console.log(`Game created: ${gameId} by ${data.playerName} (${socket.id})`);
+      console.log(`Current games: ${Object.keys(games).length}`);
       
       socket.emit('gameCreated', { gameId, isHost: true, gameState: game });
       logGameState(gameId);
       broadcastGameList();
     } catch (error) {
-      console.error('❌ Error creating game:', error);
+      console.error('Error creating game:', error);
       socket.emit('error', 'Failed to create game');
     }
   });
 
   socket.on('joinGame', (data: { gameId: string; playerName: string }) => {
     try {
-      console.log(`🚪 ${data.playerName} (${socket.id}) trying to join game ${data.gameId}`);
+      console.log(`${data.playerName} (${socket.id}) trying to join game ${data.gameId}`);
       const game = games[data.gameId];
       
       if (!game) {
-        console.log(`❌ Game not found: ${data.gameId}`);
+        console.log(`Game not found: ${data.gameId}`);
         socket.emit('error', 'Game not found');
         return;
       }
       
       if (game.status !== 'waiting') {
-        console.log(`❌ Game ${data.gameId} already started, can't join`);
+        console.log(`Game ${data.gameId} already started, can't join`);
         socket.emit('error', 'Game already started');
         return;
       }
       
       if (game.players.length >= game.settings.maxPlayers) {
-        console.log(`❌ Game ${data.gameId} is full (${game.players.length}/${game.settings.maxPlayers})`);
+        console.log(`Game ${data.gameId} is full (${game.players.length}/${game.settings.maxPlayers})`);
         socket.emit('error', 'Game is full');
         return;
       }
@@ -321,7 +321,7 @@ io.on('connection', (socket: Socket) => {
       const blueCount = game.players.filter(p => p.team === 'blue').length;
       const team = redCount <= blueCount ? 'red' : 'blue';
       
-      console.log(`⚖️ Assigning player to ${team} team (Red: ${redCount}, Blue: ${blueCount})`);
+      console.log(`Assigning player to ${team} team (Red: ${redCount}, Blue: ${blueCount})`);
       
       const player: Player = {
         id: socket.id,
@@ -338,14 +338,14 @@ io.on('connection', (socket: Socket) => {
       
       game.players.push(player);
       socket.join(data.gameId);
-      console.log(`✅ ${data.playerName} joined game ${data.gameId} on ${team} team`);
+      console.log(`${data.playerName} joined game ${data.gameId} on ${team} team`);
       
       socket.emit('gameJoined', { gameId: data.gameId, isHost: false, gameState: game });
       io.to(data.gameId).emit('gameStateUpdate', game);
       logGameState(data.gameId);
       broadcastGameList();
     } catch (error) {
-      console.error('❌ Error joining game:', error);
+      console.error('Error joining game:', error);
       socket.emit('error', 'Failed to join game');
     }
   });
@@ -354,28 +354,28 @@ io.on('connection', (socket: Socket) => {
     try {
       const game = games[gameId];
       if (!game) {
-        console.log(`❓ Player ${socket.id} tried to leave non-existent game ${gameId}`);
+        console.log(`Player ${socket.id} tried to leave non-existent game ${gameId}`);
         return;
       }
       
       const player = game.players.find(p => p.id === socket.id);
       if (!player) {
-        console.log(`❓ Player ${socket.id} not found in game ${gameId}`);
+        console.log(`Player ${socket.id} not found in game ${gameId}`);
         return;
       }
       
-      console.log(`🚪 Player ${player.name} (${socket.id}) leaving game ${gameId}`);
+      console.log(`Player ${player.name} (${socket.id}) leaving game ${gameId}`);
       
       // Leave the socket.io room
       socket.leave(gameId);
-      console.log(`🔌 Socket ${socket.id} left room ${gameId}`);
+      console.log(`Socket ${socket.id} left room ${gameId}`);
       
       // Remove player from game
       const playerIndex = game.players.findIndex(p => p.id === socket.id);
       game.players.splice(playerIndex, 1);
       
       if (game.players.length === 0) {
-        console.log(`🗑️ Deleting empty game ${gameId}`);
+        console.log(`Deleting empty game ${gameId}`);
         delete games[gameId];
         broadcastGameList();
         return;
@@ -385,14 +385,14 @@ io.on('connection', (socket: Socket) => {
       if (!game.players.some(p => p.isHost)) {
         const newHost = game.players[0];
         newHost.isHost = true;
-        console.log(`👑 New host assigned: ${newHost.name} in game ${gameId}`);
+        console.log(`New host assigned: ${newHost.name} in game ${gameId}`);
       }
       
       io.to(gameId).emit('gameStateUpdate', game);
       logGameState(gameId);
       broadcastGameList();
     } catch (error) {
-      console.error('❌ Error leaving game:', error);
+      console.error('Error leaving game:', error);
     }
   });
 
@@ -400,31 +400,31 @@ io.on('connection', (socket: Socket) => {
     try {
       const game = games[gameId];
       if (!game) {
-        console.log(`❓ Player ${socket.id} tried to switch team in non-existent game ${gameId}`);
+        console.log(`Player ${socket.id} tried to switch team in non-existent game ${gameId}`);
         return;
       }
       
       const player = game.players.find(p => p.id === socket.id);
       if (!player) {
-        console.log(`❓ Player ${socket.id} not found in game ${gameId}`);
+        console.log(`Player ${socket.id} not found in game ${gameId}`);
         return;
       }
       
       const oldTeam = player.team;
       player.team = player.team === 'red' ? 'blue' : 'red';
       
-      console.log(`🔄 Team switch: ${player.name} switched from ${oldTeam} to ${player.team} in game ${gameId}`);
+      console.log(`Team switch: ${player.name} switched from ${oldTeam} to ${player.team} in game ${gameId}`);
       
       // Log team balance after switch
       const redCount = game.players.filter(p => p.team === 'red').length;
       const blueCount = game.players.filter(p => p.team === 'blue').length;
-      console.log(`⚖️ New team balance - Red: ${redCount}, Blue: ${blueCount}`);
+      console.log(`New team balance - Red: ${redCount}, Blue: ${blueCount}`);
       
       // Update game state for all players
       io.to(gameId).emit('gameStateUpdate', game);
       logGameState(gameId);
     } catch (error) {
-      console.error('❌ Error switching team:', error);
+      console.error('Error switching team:', error);
     }
   });
 
@@ -432,25 +432,25 @@ io.on('connection', (socket: Socket) => {
     try {
       const game = games[gameId];
       if (!game) {
-        console.log(`❓ Player ${socket.id} tried to start non-existent game ${gameId}`);
+        console.log(`Player ${socket.id} tried to start non-existent game ${gameId}`);
         return;
       }
       
       const player = game.players.find(p => p.id === socket.id);
       if (!player || !player.isHost) {
-        console.log(`🚫 Non-host player ${socket.id} tried to start game ${gameId}`);
+        console.log(`Non-host player ${socket.id} tried to start game ${gameId}`);
         socket.emit('error', 'Only the host can start the game');
         return;
       }
       
-      console.log(`🎬 Starting game ${gameId} by host ${player.name}`);
+      console.log(`Starting game ${gameId} by host ${player.name}`);
       game.status = 'in-progress';
       
       io.to(gameId).emit('gameStateUpdate', game);
       logGameState(gameId);
       broadcastGameList(); // Remove from available games list
     } catch (error) {
-      console.error('❌ Error starting game:', error);
+      console.error('Error starting game:', error);
       socket.emit('error', 'Failed to start game');
     }
   });
@@ -459,13 +459,13 @@ io.on('connection', (socket: Socket) => {
     try {
       const game = games[gameId];
       if (!game) {
-        console.log(`❓ Player ${socket.id} tried to start confirmation in non-existent game ${gameId}`);
+        console.log(`Player ${socket.id} tried to start confirmation in non-existent game ${gameId}`);
         return;
       }
       
       const player = game.players.find(p => p.id === socket.id);
       if (!player || !player.isHost) {
-        console.log(`🚫 Non-host player ${socket.id} tried to start color confirmation ${gameId}`);
+        console.log(`Non-host player ${socket.id} tried to start color confirmation ${gameId}`);
         socket.emit('error', 'Only the host can start color confirmation');
         return;
       }
@@ -475,7 +475,7 @@ io.on('connection', (socket: Socket) => {
         return;
       }
       
-      console.log(`🎨 Starting color confirmation phase for game ${gameId}`);
+      console.log(`Starting color confirmation phase for game ${gameId}`);
       game.status = 'confirming-colors';
       game.confirmationPhase = {
         currentTargetIndex: 0,
@@ -495,7 +495,7 @@ io.on('connection', (socket: Socket) => {
       });
       logGameState(gameId);
     } catch (error) {
-      console.error('❌ Error starting color confirmation:', error);
+      console.error('Error starting color confirmation:', error);
       socket.emit('error', 'Failed to start color confirmation');
     }
   });
@@ -528,7 +528,7 @@ io.on('connection', (socket: Socket) => {
       const confirmationKey = `${socket.id}->${data.targetPlayerId}`;
       game.confirmationPhase.confirmations[confirmationKey] = data.detectedColor;
       
-      console.log(`🎨 ${confirmingPlayer.name} confirmed ${targetPlayer.name}'s shirt as ${data.detectedColor}`);
+      console.log(`${confirmingPlayer.name} confirmed ${targetPlayer.name}'s shirt as ${data.detectedColor}`);
       
       // Check if all other players have confirmed this target
       const otherPlayers = game.players.filter(p => p.id !== data.targetPlayerId);
@@ -551,7 +551,7 @@ io.on('connection', (socket: Socket) => {
         targetPlayer.shirtColor = formatColorValue(consensusColor);
         targetPlayer.isConfirmed = true;
         
-        console.log(`✅ Consensus reached for ${targetPlayer.name}: ${consensusColor}`);
+        console.log(`Consensus reached for ${targetPlayer.name}: ${consensusColor}`);
         
         // Move to next player or finish
         game.confirmationPhase.currentTargetIndex++;
@@ -560,7 +560,7 @@ io.on('connection', (socket: Socket) => {
           // All players confirmed
           game.confirmationPhase.allConfirmed = true;
           game.status = 'waiting'; // Ready to start actual game
-          console.log(`🎉 All players' shirt colors confirmed for game ${data.gameId}`);
+          console.log(`All players' shirt colors confirmed for game ${data.gameId}`);
           
           io.to(data.gameId).emit('allColorsConfirmed', {
             gameState: game,
@@ -588,7 +588,7 @@ io.on('connection', (socket: Socket) => {
       
       logGameState(data.gameId);
     } catch (error) {
-      console.error('❌ Error submitting color confirmation:', error);
+      console.error('Error submitting color confirmation:', error);
       socket.emit('error', 'Failed to submit color confirmation');
     }
   });
@@ -597,18 +597,18 @@ io.on('connection', (socket: Socket) => {
 
   socket.on('requestGameState', (gameId: string) => {
     try {
-      console.log(`📡 Player ${socket.id} requesting game state for game ${gameId}`);
-      console.log(`🔍 Available games: ${Object.keys(games).join(', ')}`);
+      console.log(`Player ${socket.id} requesting game state for game ${gameId}`);
+      console.log(`Available games: ${Object.keys(games).join(', ')}`);
       
       if (!gameId) {
-        console.log(`❌ Invalid gameId: ${gameId}`);
+        console.log(`Invalid gameId: ${gameId}`);
         socket.emit('error', 'Invalid game ID');
         return;
       }
       
       const game = games[gameId];
       if (!game) {
-        console.log(`❌ Game ${gameId} not found. Available games:`, Object.keys(games));
+        console.log(`Game ${gameId} not found. Available games:`, Object.keys(games));
         socket.emit('error', 'Game not found or may have ended');
         return;
       }
@@ -616,14 +616,14 @@ io.on('connection', (socket: Socket) => {
       // Check if this player is already in the game
       const existingPlayer = game.players.find(p => p.id === socket.id);
       if (!existingPlayer) {
-        console.log(`❓ Player ${socket.id} not found in game ${gameId}. Players in game:`, game.players.map(p => `${p.name}(${p.id})`));
+        console.log(`Player ${socket.id} not found in game ${gameId}. Players in game:`, game.players.map(p => `${p.name}(${p.id})`));
         socket.emit('error', 'You are not a player in this game.');
         return;
       }
       
       // Join the socket room and send current game state
       socket.join(gameId);
-      console.log(`✅ Player ${existingPlayer.name} (${socket.id}) reconnected to game ${gameId}`);
+      console.log(`Player ${existingPlayer.name} (${socket.id}) reconnected to game ${gameId}`);
       
       socket.emit('gameStateUpdate', game);
       
@@ -632,14 +632,14 @@ io.on('connection', (socket: Socket) => {
       
       logGameState(gameId);
     } catch (error) {
-      console.error('❌ Error requesting game state:', error);
+      console.error('Error requesting game state:', error);
       socket.emit('error', 'Failed to get game state');
     }
   });
 
   // Handle socket errors
   socket.on('error', (error) => {
-    console.error(`🚨 Socket error for ${socket.id}:`, error);
+    console.error(`Socket error for ${socket.id}:`, error);
     
     // Notify client about the error
     try {
@@ -663,7 +663,7 @@ io.on('connection', (socket: Socket) => {
   
   // Handle explicit connection test from client
   socket.on('testConnection', (data, callback) => {
-    console.log(`🔄 Connection test from client ${socket.id}`);
+    console.log(`Connection test from client ${socket.id}`);
     
     const response = {
       success: true,
@@ -702,7 +702,7 @@ socket.on('playerDamage', (data: { gameId: string; targetPlayerId: string; attac
 
         if (targetPlayer.status === 'dead') {
             socket.emit('notification', {
-                message: '💀 Target is already eliminated!',
+                message: 'Target is already eliminated!',
                 type: 'error'
             });
             return;
@@ -711,7 +711,7 @@ socket.on('playerDamage', (data: { gameId: string; targetPlayerId: string; attac
         // Check friendly fire
         if (targetPlayer.team === attacker.team) {
             socket.emit('notification', {
-                message: '⚠️ Friendly fire is not allowed!',
+                message: 'Friendly fire is not allowed!',
                 type: 'error'
             });
             return;
@@ -835,7 +835,7 @@ app.get('/api/games', (req, res) => {
 
 const PORT = process.env.PORT || 3001;
 httpServer.listen(PORT, () => {
-  console.log(`\n🚀 Backend server ready on http://localhost:${PORT}`);
-  console.log(`🎮 Waiting for connections...\n`);
-  console.log(`📊 Health check available at http://localhost:${PORT}/health`);
+  console.log(`Backend server ready on http://localhost:${PORT}`);
+  console.log(`Waiting for connections...\n`);
+  console.log(`Health check available at http://localhost:${PORT}/health`);
 });
