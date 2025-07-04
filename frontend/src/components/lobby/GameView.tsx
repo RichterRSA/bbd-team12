@@ -657,12 +657,22 @@ export const GameView: React.FC<GameViewProps> = ({
     // Temporary death screen - will respawn
     return (
       <div className="fixed inset-0 z-[9999] bg-red-900/95 backdrop-blur-md flex items-center justify-center">
-        <div className="text-center text-white p-8 space-y-6 max-w-2xl w-full">
-          <h1 className="text-8xl font-bold animate-pulse mb-8">TAGGED!</h1>
+        {/* Red overlay for tagged state */}
+        <div className="absolute inset-0 bg-red-500/60 animate-pulse"></div>
+        
+        <div className="relative text-center text-white p-8 space-y-6 max-w-2xl w-full">
+          <h1 className="text-8xl font-bold animate-pulse mb-8 text-red-200">TAGGED!</h1>
           
           <div className="text-2xl space-y-4">
-            <p className="mb-4">Respawning in {respawnCountdown} seconds...</p>
-            <p>Lives Remaining: {currentPlayer.lives - 1}</p>
+            {respawnCountdown !== null && (
+              <div className="mb-6">
+                <div className="text-6xl font-bold text-red-200 animate-bounce mb-2">
+                  {respawnCountdown}
+                </div>
+                <p className="text-xl text-red-300">Respawning in...</p>
+              </div>
+            )}
+            <p className="text-lg text-red-200">Lives Remaining: {currentPlayer.lives - 1}</p>
           </div>
         </div>
       </div>
