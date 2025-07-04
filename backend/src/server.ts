@@ -113,14 +113,43 @@ function removePlayerFromGame(socketId: string, gameId: string): void {
   }
   
   const player = game.players[playerIndex];
-  console.log(`👋 Removing player ${player.name} (${socketId}) from game ${gameId}`);      // Notify other players about the disconnection before removing
-      io.to(gameId).emit('playerDisconnected', {
-        playerName: player.name,
-        playerId: player.id
-      });
+  console.log(`👋 Removing player ${player.name} (${socketId}) from game ${gameId}`);
+  
+  // Notify other players about the disconnection before removing
+  io.to(gameId).emit('playerDisconnected', {
+    playerName: player.name,
+    playerId: player.id
+  });
 
-      // Remove the player
-      game.players.splice(playerIndex, 1);
+  // Handle color confirmation phase - return all players to lobby
+  if (game.status === 'confirming-colors' && game.confirmationPhase) {
+    console.log(`🎨 Player disconnected during color confirmation - returning all players to lobby`);
+    
+    // Reset game to waiting state
+    game.status = 'waiting';
+    game.confirmationPhase = undefined;
+    
+    // Clear any shirt colors that were being confirmed
+    game.players.forEach(p => {
+      if (p.id !== socketId) { // Don't modify the player we're about to remove
+        p.shirtColor = undefined;
+      }
+    });
+    
+    // Remove the disconnected player
+    game.players.splice(playerIndex, 1);
+    
+    // Notify all remaining players
+    io.to(gameId).emit('notification', `${player.name} disconnected during color confirmation. Returning to lobby.`);
+    io.to(gameId).emit('colorConfirmationEnded', {
+      gameState: game,
+      reason: 'Player disconnected'
+    });
+    io.to(gameId).emit('gameStateUpdate', game);
+  } else {
+    // Remove the player for non-color-confirmation states
+    game.players.splice(playerIndex, 1);
+  }
   
   // Handle empty games
   if (game.players.length === 0) {

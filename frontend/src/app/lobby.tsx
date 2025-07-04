@@ -535,6 +535,18 @@ const Lobby = () => {
       showNotification('Color confirmation skipped', 'info');
     });
 
+    socket.on('colorConfirmationEnded', (data: { gameState: GameState; reason: string }) => {
+      setGameState(data.gameState);
+      showNotification(`Color confirmation ended: ${data.reason}`, 'error');
+      
+      // Reset any camera-related state
+      setShowCamera(false);
+      setFinalResult(null);
+      setColorSamples([]);
+      setIsScanning(false);
+      setScanProgress(0);
+    });
+
     socket.on('notification', (message: string) => {
       showNotification(message, 'info');
     });
@@ -558,6 +570,7 @@ const Lobby = () => {
       socket.off('allColorsConfirmed');
       socket.off('colorConfirmationUpdate');
       socket.off('colorConfirmationSkipped');
+      socket.off('colorConfirmationEnded');
       socket.off('notification');
       socket.off('playerDisconnected');
     };
