@@ -109,9 +109,16 @@ export const GameView: React.FC<GameViewProps> = ({
       }
     });
 
+    socket.on('playerDisconnected', (data: { playerName: string; playerId: string }) => {
+      if (currentPlayer && data.playerId !== currentPlayer.id) {
+        showNotification(`${data.playerName} disconnected and was removed from the game`, 'info');
+      }
+    });
+
     return () => {
       socket.off('playerDeath');
       socket.off('playerRespawn');
+      socket.off('playerDisconnected');
     };
   }, [socket, currentPlayer, showNotification]);
 
@@ -497,6 +504,9 @@ export const GameView: React.FC<GameViewProps> = ({
       socket.off('playerDamaged');
       socket.off('playerEliminated');
       socket.off('gameWon');
+      socket.off('playerDeath');
+      socket.off('playerRespawn');
+      socket.off('playerDisconnected');
     };
   }, [socket, currentPlayer?.id, showNotification]);
 

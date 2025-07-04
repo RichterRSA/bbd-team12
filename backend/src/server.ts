@@ -113,10 +113,14 @@ function removePlayerFromGame(socketId: string, gameId: string): void {
   }
   
   const player = game.players[playerIndex];
-  console.log(`👋 Removing player ${player.name} (${socketId}) from game ${gameId}`);
-  
-  // Remove the player
-  game.players.splice(playerIndex, 1);
+  console.log(`👋 Removing player ${player.name} (${socketId}) from game ${gameId}`);      // Notify other players about the disconnection before removing
+      io.to(gameId).emit('playerDisconnected', {
+        playerName: player.name,
+        playerId: player.id
+      });
+
+      // Remove the player
+      game.players.splice(playerIndex, 1);
   
   // Handle empty games
   if (game.players.length === 0) {
@@ -132,11 +136,11 @@ function removePlayerFromGame(socketId: string, gameId: string): void {
     
     // Notify remaining players
     io.to(gameId).emit('gameStateUpdate', game);
-    io.to(gameId).emit('notification', `${player.name} left the game. ${newHost.name} is now the host.`);
+    io.to(gameId).emit('notification', `${player.name} disconnected. ${newHost.name} is now the host.`);
   } else {
-    // Just notify about player leaving
+    // Just notify about player leaving and update game state
     io.to(gameId).emit('gameStateUpdate', game);
-    io.to(gameId).emit('notification', `${player.name} left the game.`);
+    io.to(gameId).emit('notification', `${player.name} disconnected.`);
   }
   
   if (typeof logGameState === 'function') {
@@ -153,23 +157,17 @@ function removePlayerFromGames(socketId: string): void {
     const player = game.players.find(p => p.id === socketId);
     
     if (player) {
-      console.log(`👋 Player ${player.name} (${socketId}) disconnected from game ${gameId} (status: ${game.status})`);
+      console.log(`👋 Player ${player.name} (${socketId}) disconnected from game ${gameId} (status: ${game.status}) - removing immediately`);
       
-      // If the game is in-progress, don't remove the player immediately
-      // This gives them a chance to reconnect when redirecting to the game page
-      if (game.status === 'in-progress') {
-        console.log(`🕒 Game ${gameId} is in-progress - keeping player ${player.name} in game for potential reconnect`);
-        
-        // We could implement a timeout to remove them after a period, but for now we'll keep them
-        // This solves the "player gets removed during page redirect" problem
-        
-        // Just notify other players about the disconnection
-        io.to(gameId).emit('notification', `${player.name} disconnected temporarily`);
-        continue;
-      }
-      
-      // For games not in progress, remove the player
+      // Always remove the player immediately, regardless of game status
       removePlayerFromGame(socketId, gameId);
+      
+      // Notify other players about the disconnection
+      io.to(gameId).emit('playerDisconnected', {
+        playerName: player.name,
+        playerId: player.id
+      });
+      io.to(gameId).emit('notification', `${player.name} disconnected and was removed from the game`);
     }
   }
   
@@ -212,6 +210,17 @@ io.on('connection', (socket: Socket) => {
   console.log(`📤 Sending game list to new client (${availableGames.length} games)`);
   socket.emit('gameList', availableGames);
 
+  // Handle socket disconnection
+  socket.on('disconnect', (reason: string) => {
+    console.log(`🔴 Client disconnected: ${socket.id} (reason: ${reason})`);
+    
+    // Remove player from all games they might be in
+    removePlayerFromGames(socket.id);
+    
+    // Log current game count after cleanup
+    console.log(`📊 Games after disconnect cleanup: ${Object.keys(games).length}`);
+  });
+
   socket.on('requestGameList', () => {
     console.log(`🔄 Client ${socket.id} requested game list refresh`);
     const availableGames = Object.values(games).filter(g => g.status === 'waiting');
@@ -231,11 +240,11 @@ io.on('connection', (socket: Socket) => {
           isHost: true,
           team: 'red',
           health: 100,
-          points: 0, // Add this
-          lives: 3, // Add this
-          powerUps: [], // Add this
-          weapon: null, // Add this
-          status: 'alive' // Add this
+          points: 0,
+          lives: 3,
+          powerUps: [],
+          weapon: null,
+          status: 'alive'
         }],
         status: 'waiting',
         settings: data.gameSettings,
@@ -291,11 +300,11 @@ io.on('connection', (socket: Socket) => {
         isHost: false,
         team,
         health: 100,
-        points: 0, // Add this
-        lives: 3, // Add this
-        powerUps: [], // Add this
-        weapon: null, // Add this
-        status: 'alive' // Add this
+        points: 0,
+        lives: 3,
+        powerUps: [],
+        weapon: null,
+        status: 'alive'
       };
       
       game.players.push(player);
@@ -572,9 +581,6 @@ io.on('connection', (socket: Socket) => {
       if (!game) {
         console.log(`❌ Game ${gameId} not found. Available games:`, Object.keys(games));
         socket.emit('error', 'Game not found or may have ended');
-        
-        // Suggest using rejoinGame instead
-        socket.emit('notification', 'If you were disconnected, use the rejoinGame event with your player name');
         return;
       }
       
@@ -582,7 +588,7 @@ io.on('connection', (socket: Socket) => {
       const existingPlayer = game.players.find(p => p.id === socket.id);
       if (!existingPlayer) {
         console.log(`❓ Player ${socket.id} not found in game ${gameId}. Players in game:`, game.players.map(p => `${p.name}(${p.id})`));
-        socket.emit('error', 'You are not a player in this game. Try using rejoinGame instead.');
+        socket.emit('error', 'You are not a player in this game.');
         return;
       }
       
@@ -599,101 +605,6 @@ io.on('connection', (socket: Socket) => {
     } catch (error) {
       console.error('❌ Error requesting game state:', error);
       socket.emit('error', 'Failed to get game state');
-    }
-  });
-
-  // Track reconnection attempts per socket to prevent loops
-  const reconnectionAttempts = new Map<string, Map<string, number>>();
-  
-  // Add a new event to handle players rejoining with a different socket ID
-  socket.on('rejoinGame', (gameId: string, playerName: string) => {
-    try {
-      // Track reconnection attempts for this socket+gameId combination
-      const socketAttempts = reconnectionAttempts.get(socket.id) || new Map<string, number>();
-      const currentAttempts = socketAttempts.get(gameId) || 0;
-      socketAttempts.set(gameId, currentAttempts + 1);
-      reconnectionAttempts.set(socket.id, socketAttempts);
-      
-      console.log(`🔄 Player ${playerName} (${socket.id}) trying to rejoin game ${gameId} (attempt #${currentAttempts + 1})`);
-      console.log(`🔍 Available games: ${Object.keys(games).join(', ')}`);
-      
-      // Prevent excessive reconnection attempts
-      if (currentAttempts >= 5) {
-        console.log(`⛔ Too many rejoin attempts (${currentAttempts}) for socket ${socket.id} to game ${gameId}`);
-        socket.emit('error', 'Too many reconnection attempts. The game may no longer exist.');
-        socket.emit('gameConfirmedNonexistent', { gameId: gameId });
-        return;
-      }
-      
-      // Validate the data
-      if (!gameId || !playerName) {
-        console.log(`❌ Invalid rejoin data: gameId=${gameId}, playerName=${playerName}`);
-        socket.emit('error', 'Invalid game ID or player name');
-        return;
-      }
-      
-      const game = games[gameId];
-      if (!game) {
-        console.log(`❌ Game ${gameId} not found for rejoin. Available games: ${Object.keys(games).join(', ')}`);
-        socket.emit('error', 'Game not found or has ended');
-        socket.emit('gameNotFound');
-        // Send a special flag to inform client this game definitely doesn't exist
-        socket.emit('gameConfirmedNonexistent', { gameId: gameId });
-        return;
-      }
-      
-      // Check if this socket is already in the game with a different player name
-      const duplicateSocketPlayer = game.players.find(p => p.id === socket.id);
-      if (duplicateSocketPlayer && duplicateSocketPlayer.name !== playerName) {
-        console.log(`⚠️ Socket ${socket.id} is already in game as ${duplicateSocketPlayer.name}, but trying to rejoin as ${playerName}`);
-        // We'll allow this but log it as unusual
-      }
-      
-      // Find player by name instead of socket ID
-      const existingPlayer = game.players.find(p => p.name === playerName);
-      if (!existingPlayer) {
-        console.log(`❌ Player ${playerName} not found in game ${gameId}`);
-        console.log(`📊 Players in game: ${game.players.map(p => `${p.name}(${p.id})`).join(', ')}`);
-        
-        // If the game is in progress and the player name doesn't exist, we might want to allow them to join as a new player
-        // But for now, we'll just return an error
-        socket.emit('error', 'Player not found in this game');
-        return;
-      }
-      
-      // If the player is already in the game with this socket ID, just update the game state
-      if (existingPlayer.id === socket.id) {
-        console.log(`ℹ️ Player ${playerName} already has correct socket ID ${socket.id}`);
-        socket.join(gameId);
-        socket.emit('gameState', game);
-        socket.emit('playerJoined', gameId, playerName);
-        return;
-      }
-      
-      console.log(`🔁 Updating socket ID for player ${playerName} from ${existingPlayer.id} to ${socket.id}`);
-      
-      // Update the player's socket ID
-      existingPlayer.id = socket.id;
-      
-      // Join the socket room
-      socket.join(gameId);
-      console.log(`✅ Player ${playerName} rejoined game ${gameId} with new socket ID ${socket.id}`);
-      
-      // Send the updated game state
-      socket.emit('gameState', game);
-      socket.emit('playerJoined', gameId, playerName);
-      
-      // Notify other players about the reconnection
-      socket.to(gameId).emit('notification', `${playerName} reconnected to the game`);
-      
-      if (typeof logGameState === 'function') {
-        logGameState(gameId);
-      } else {
-        console.log(`📊 Game state for ${gameId}: ${game.players.length} players, status: ${game.status}`);
-      }
-    } catch (error) {
-      console.error('❌ Error rejoining game:', error);
-      socket.emit('error', 'Failed to rejoin game');
     }
   });
 

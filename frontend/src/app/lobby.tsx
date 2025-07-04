@@ -535,6 +535,14 @@ const Lobby = () => {
       showNotification('Color confirmation skipped', 'info');
     });
 
+    socket.on('notification', (message: string) => {
+      showNotification(message, 'info');
+    });
+
+    socket.on('playerDisconnected', (data: { playerName: string; playerId: string }) => {
+      showNotification(`${data.playerName} disconnected`, 'info');
+    });
+
     // Request the initial game list
     socket.emit('requestGameList');
 
@@ -550,6 +558,8 @@ const Lobby = () => {
       socket.off('allColorsConfirmed');
       socket.off('colorConfirmationUpdate');
       socket.off('colorConfirmationSkipped');
+      socket.off('notification');
+      socket.off('playerDisconnected');
     };
   }, [socket]);
 

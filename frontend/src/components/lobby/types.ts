@@ -9,6 +9,7 @@ export interface Player {
   points: number;
   lives: number;
   status: 'alive' | 'dead';
+  connectionStatus?: 'connected' | 'disconnected';
   weapon: {
     type: string;
     damage: number;

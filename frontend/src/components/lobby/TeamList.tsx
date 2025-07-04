@@ -9,6 +9,7 @@ interface Player {
   team: 'red' | 'blue';
   isConfirmed?: boolean;
   shirtColor?: string;
+  connectionStatus?: 'connected' | 'disconnected';
 }
 
 interface TeamListProps {
@@ -49,6 +50,14 @@ export const TeamList: React.FC<TeamListProps> = ({ teamColor, players, socketId
               <div className="flex items-center">
                 <div className={`w-8 h-8 rounded-full ${avatarBg} flex items-center justify-center mr-3 relative`}>
                   {player.name.charAt(0).toUpperCase()}
+                  {/* Connection status indicator */}
+                  <div 
+                    className={`absolute -top-1 -right-1 w-3 h-3 rounded-full border border-white ${
+                      player.connectionStatus === 'disconnected' ? 'bg-red-500' : 'bg-green-500'
+                    }`}
+                    title={player.connectionStatus === 'disconnected' ? 'Disconnected' : 'Connected'}
+                  />
+                  {/* Color confirmation indicator */}
                   {player.isConfirmed && player.shirtColor && (
                     <div 
                       className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white`}
@@ -58,7 +67,12 @@ export const TeamList: React.FC<TeamListProps> = ({ teamColor, players, socketId
                   )}
                 </div>
                 <div>
-                  <span>{player.name}</span>
+                  <span className={player.connectionStatus === 'disconnected' ? 'text-gray-400 italic' : ''}>
+                    {player.name}
+                    {player.connectionStatus === 'disconnected' && (
+                      <span className="text-red-400 text-xs ml-1">(disconnected)</span>
+                    )}
+                  </span>
                   {player.isConfirmed && player.shirtColor && (
                     <div className="text-xs text-gray-400">
                       Shirt: {formatColorDisplay(player.shirtColor)}
