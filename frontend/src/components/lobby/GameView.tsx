@@ -10,6 +10,49 @@ import { getCrosshairTorsoColor, isPersonInCrosshair } from '@/utils/crosshairUt
 import { rgbToHsv, colorDistance } from '@/utils/colorDetection';
 import { useRouter } from 'next/navigation';
 
+// Add error boundary component
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    console.error('React Error Boundary caught error:', error);
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: any) {
+    console.error('React Error Boundary - Error details:', error);
+    console.error('React Error Boundary - Component stack:', errorInfo.componentStack);
+    console.error('React Error Boundary - Error stack:', error.stack);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="fixed inset-0 bg-red-900 flex items-center justify-center text-white p-4">
+          <div className="text-center">
+            <h2 className="text-2xl font-bold mb-4">Something went wrong!</h2>
+            <p className="mb-4">Error: {this.state.error?.message}</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-700"
+            >
+              Reload Page
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 interface GameViewProps {
   gameState: GameState;
   currentPlayer: Player | undefined;
@@ -60,6 +103,36 @@ export const GameView: React.FC<GameViewProps> = ({
   const [topPlayer, setTopPlayer] = useState<Player | null>(null);
   const [gameWonData, setGameWonData] = useState<GameWonData | null>(null);
   const router = useRouter();
+
+  // Debug effect to track gameWonData changes
+  useEffect(() => {
+    console.log('gameWonData state changed:', gameWonData);
+  }, [gameWonData]);
+
+  // Add global error handler
+  useEffect(() => {
+    const handleError = (event: ErrorEvent) => {
+      console.error('Global error caught:', event.error);
+      console.error('Error message:', event.message);
+      console.error('Error filename:', event.filename);
+      console.error('Error line number:', event.lineno);
+      console.error('Error column number:', event.colno);
+      console.error('Error stack:', event.error?.stack);
+    };
+
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      console.error('Unhandled promise rejection:', event.reason);
+      console.error('Promise:', event.promise);
+    };
+
+    window.addEventListener('error', handleError);
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+
+    return () => {
+      window.removeEventListener('error', handleError);
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+    };
+  }, []);
 
   // Function to find the top scoring player
   const getTopPlayer = useCallback(() => {
@@ -519,6 +592,8 @@ export const GameView: React.FC<GameViewProps> = ({
     // Add game won event handler
     socket.on('gameWon', (data: GameWonData) => {
       console.log('Game won event received:', data);
+      console.log('Current player:', currentPlayer);
+      console.log('Game state:', gameState);
       setGameWonData(data);
       
       // Play victory/defeat sound
@@ -531,12 +606,23 @@ export const GameView: React.FC<GameViewProps> = ({
       }
     });
 
+    // Listen for game state changes that might affect game end
+    socket.on('gameStateUpdate', (data: any) => {
+      console.log('Game state update received:', data);
+      // Don't clear gameWonData if it's already set
+      if (gameWonData) {
+        console.log('Game already won, ignoring game state update');
+        return;
+      }
+    });
+
     return () => {
       socket.off('playerHealthUpdate');
       socket.off('playerScoreUpdate');
       socket.off('playerDamaged');
       socket.off('playerEliminated');
       socket.off('gameWon');
+      socket.off('gameStateUpdate');
       socket.off('playerDeath');
       socket.off('playerRespawn');
       socket.off('playerDisconnected');
@@ -601,24 +687,44 @@ export const GameView: React.FC<GameViewProps> = ({
     };
   }, []);
 
-  // Notification Container Component
+  // Notification Container Component with error handling
   const NotificationContainer = () => {
-    return (
-      <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-[9999] flex flex-col items-center space-y-2 max-w-md">
-        {notifications.map((notification, index) => (
-          <div
-            key={index}
-            className={`px-4 py-2 rounded-lg text-white text-center font-semibold shadow-lg animate-fade-in ${
-              notification.type === 'success' ? 'bg-green-600/90' :
-              notification.type === 'error' ? 'bg-red-600/90' :
-              'bg-blue-600/90'
-            }`}
-          >
-            {notification.message}
-          </div>
-        ))}
-      </div>
-    );
+    try {
+      return (
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-[9999] flex flex-col items-center space-y-2 max-w-md">
+          {notifications.map((notification, index) => {
+            // Ensure notification is properly validated
+            if (!notification || typeof notification !== 'object') {
+              console.error('Invalid notification object:', notification);
+              return null;
+            }
+            
+            const safeMessage = typeof notification.message === 'string' ? notification.message : String(notification.message || '');
+            const safeType = ['success', 'error', 'info'].includes(notification.type) ? notification.type : 'info';
+            
+            return (
+              <div
+                key={index}
+                className={`px-4 py-2 rounded-lg text-white text-center font-semibold shadow-lg animate-fade-in ${
+                  safeType === 'success' ? 'bg-green-600/90' :
+                  safeType === 'error' ? 'bg-red-600/90' :
+                  'bg-blue-600/90'
+                }`}
+              >
+                {safeMessage}
+              </div>
+            );
+          })}
+        </div>
+      );
+    } catch (error) {
+      console.error('Error in NotificationContainer:', error);
+      return (
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-[9999] bg-red-600 text-white px-4 py-2 rounded">
+          Notification Error
+        </div>
+      );
+    }
   };
 
   const DeathScreen = () => {
@@ -681,6 +787,8 @@ export const GameView: React.FC<GameViewProps> = ({
 
   // Victory/Defeat Screen Component
   const GameEndScreen = () => {
+    console.log('GameEndScreen render check:', { gameWonData, currentPlayer, gameState });
+    
     if (!gameWonData || !currentPlayer || !gameState) {
       console.log('Missing data for GameEndScreen:', { gameWonData, currentPlayer, gameState });
       return null;
@@ -732,6 +840,13 @@ export const GameView: React.FC<GameViewProps> = ({
     <div className="fixed inset-0 overflow-hidden bg-black">
       {/* Single NotificationContainer positioned at the top */}
       <NotificationContainer />
+
+      {/* Debug info for game won state */}
+      {gameWonData && (
+        <div className="fixed top-2 right-2 bg-yellow-500 text-black p-2 rounded text-xs z-[10000]">
+          Game Won: {gameWonData.winningTeam} | Top: {gameWonData.topPlayer.name}
+        </div>
+      )}
 
       {/* Show GameEndScreen when game is won */}
       {gameWonData && <GameEndScreen />}
