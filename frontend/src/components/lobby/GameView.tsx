@@ -731,7 +731,7 @@ export const GameView: React.FC<GameViewProps> = ({
     if (!currentPlayer) return null;
 
     if (currentPlayer.lives <= 0) {
-      // Final death screen - no respawn
+      // Final death screen - no respawn (full screen replacement)
       return (
         <div className="fixed inset-0 z-[9999] bg-red-950/95 backdrop-blur-md flex items-center justify-center">
           <div className="text-center text-white p-8 space-y-8 max-w-2xl w-full">
@@ -760,29 +760,28 @@ export const GameView: React.FC<GameViewProps> = ({
       );
     }
 
-    // Temporary death screen - will respawn
-    return (
-      <div className="fixed inset-0 z-[9999] bg-red-900/95 backdrop-blur-md flex items-center justify-center">
-        {/* Red overlay for tagged state */}
-        <div className="absolute inset-0 bg-red-500/60 animate-pulse"></div>
-        
-        <div className="relative text-center text-white p-8 space-y-6 max-w-2xl w-full">
-          <h1 className="text-8xl font-bold animate-pulse mb-8 text-red-200">TAGGED!</h1>
-          
-          <div className="text-2xl space-y-4">
-            {respawnCountdown !== null && (
+    // Temporary death screen - will respawn (overlay only)
+    if (respawnCountdown !== null) {
+      return (
+        <div className="fixed inset-0 z-[8000] bg-red-500/90 backdrop-blur-sm flex items-center justify-center pointer-events-none">
+          <div className="text-center text-white p-8 space-y-6 max-w-2xl w-full">
+            <h1 className="text-8xl font-bold animate-pulse mb-8 text-red-200">TAGGED!</h1>
+            
+            <div className="text-2xl space-y-4">
               <div className="mb-6">
                 <div className="text-6xl font-bold text-red-200 animate-bounce mb-2">
                   {respawnCountdown}
                 </div>
                 <p className="text-xl text-red-300">Respawning in...</p>
               </div>
-            )}
-            <p className="text-lg text-red-200">Lives Remaining: {currentPlayer.lives - 1}</p>
+              <p className="text-lg text-red-200">Lives Remaining: {currentPlayer.lives - 1}</p>
+            </div>
           </div>
         </div>
-      </div>
-    );
+      );
+    }
+
+    return null;
   };
 
   // Victory/Defeat Screen Component
@@ -851,9 +850,6 @@ export const GameView: React.FC<GameViewProps> = ({
       {/* Show GameEndScreen when game is won */}
       {gameWonData && <GameEndScreen />}
       
-      {/* Death Screen */}
-      {currentPlayer?.status === 'dead' && !gameWonData && <DeathScreen />}
-
       {/* Only render game content if not showing end screen */}
       {!gameWonData && (
         <div className="relative w-full h-full">
@@ -1048,6 +1044,9 @@ export const GameView: React.FC<GameViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Death Screen Overlay - Renders on top of everything when tagged */}
+      {currentPlayer?.status === 'dead' && !gameWonData && <DeathScreen />}
 
       {/* Instructions Modal - Keep this outside the game content conditional */}
       {showInstructions && (
