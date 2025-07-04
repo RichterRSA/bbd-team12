@@ -168,19 +168,19 @@ export const GameView: React.FC<GameViewProps> = ({
   // Function to handle shooting
   const handleShoot = useCallback(() => {
     if (currentPlayer?.status === 'dead') {
-      showNotification('💀 You are eliminated!', 'error');
+      handleNotification('💀 You are eliminated!', 'error');
       return;
     }
 
     const now = Date.now();
     if (now - lastShotTime < SHOOT_COOLDOWN) {
-      showNotification('🕒 Laser cooling down...', 'info');
+      handleNotification('🕒 Laser cooling down...', 'info');
       return;
     }
 
     // Check if player is in a valid state to shoot
     if (!currentPlayer) {
-      showNotification('⚠️ Player not found', 'error');
+      handleNotification('⚠️ Player not found', 'error');
       return;
     }
 
@@ -193,12 +193,12 @@ export const GameView: React.FC<GameViewProps> = ({
     setScreenFlash('shoot');
 
     if (!state.isTargetDetected) {
-      showNotification('❌ No target in crosshair', 'info');
+      handleNotification('❌ No target in crosshair', 'info');
       return;
     }
 
     if (state.debugInfo.playerMatches.length === 0) {
-      showNotification('🎯 Missed! No player detected', 'info');
+      handleNotification('🎯 Missed! No player detected', 'info');
       return;
     }
 
@@ -210,12 +210,12 @@ export const GameView: React.FC<GameViewProps> = ({
     // Only deal damage if the match is close enough and it's an enemy player
     if (closestMatch.distance < 30) {
       if (closestMatch.player.team === currentPlayer.team) {
-        showNotification('⚠️ Friendly fire is not allowed!', 'error');
+        handleNotification('⚠️ Friendly fire is not allowed!', 'error');
         return;
       }
       
       if (closestMatch.player.status === 'dead') {
-        showNotification('💀 Target is already eliminated!', 'info');
+        handleNotification('💀 Target is already eliminated!', 'info');
         return;
       }      // Emit the damage event to the server
       if (socket && gameState.id && closestMatch.player.id && currentPlayer) {
@@ -224,12 +224,12 @@ export const GameView: React.FC<GameViewProps> = ({
           targetPlayerId: closestMatch.player.id,
           attackerId: currentPlayer.id
         });
-        showNotification(`🎯 Shot fired at ${closestMatch.player.name}!`, 'success');
+        handleNotification(`🎯 Shot fired at ${closestMatch.player.name}!`, 'success');
       }
     } else {
-      showNotification('📏 Target too far or not clear enough', 'info');
+      handleNotification('📏 Target too far or not clear enough', 'info');
     }
-  }, [lastShotTime, socket, gameState?.id, currentPlayer, showNotification, playShootSound]);
+  }, [lastShotTime, socket, gameState?.id, currentPlayer, playShootSound]);
 
   // Add shoot animation cleanup
   useEffect(() => {
@@ -400,7 +400,7 @@ export const GameView: React.FC<GameViewProps> = ({
             // Taking damage
             setScreenFlash('damage');
             playDamageTakenSound();
-            showNotification(`💥 -${Math.abs(delta)} HP`, 'error');
+            handleNotification(`💥 -${Math.abs(delta)} HP`, 'error');
             
             // Trigger vibration on mobile
             if (navigator.vibrate) {
@@ -410,11 +410,13 @@ export const GameView: React.FC<GameViewProps> = ({
         }
         
         if (data.health <= 20 && data.health > 0) {
-          showNotification('⚠️ Low health!', 'error');
+          handleNotification('⚠️ Low health!', 'error');
         }
         if (data.health <= 0) {
-          currentPlayer.status = 'dead'; // Update player status immediately
-          showNotification('💀 You have been eliminated!', 'error');
+          if (currentPlayer) {
+            currentPlayer.status = 'dead'; // Update player status immediately
+          }
+          handleNotification('💀 You have been eliminated!', 'error');
           setScreenFlash('damage');
           
           // Strong vibration for death
@@ -438,7 +440,7 @@ export const GameView: React.FC<GameViewProps> = ({
           setScoreDelta(delta);
           setScreenFlash('hit');
           playHitSound();
-          showNotification(`🎯 +${delta} points!`, 'success');
+          handleNotification(`🎯 +${delta} points!`, 'success');
         }
       }
     });
@@ -446,7 +448,7 @@ export const GameView: React.FC<GameViewProps> = ({
     // Listen for damage taken
     socket.on('playerDamaged', (data: { targetPlayerId: string; damage: number; attackerName: string }) => {
       if (currentPlayer && data.targetPlayerId === currentPlayer.id) {
-        showNotification(`💥 Hit by ${data.attackerName}! (-${data.damage} HP)`, 'error');
+        handleNotification(`💥 Hit by ${data.attackerName}! (-${data.damage} HP)`, 'error');
         setScreenFlash('damage');
         playDamageTakenSound();
         
@@ -461,7 +463,9 @@ export const GameView: React.FC<GameViewProps> = ({
     socket.on('playerEliminated', (data: { playerId: string; playerName: string; eliminatedBy?: string }) => {
       if (currentPlayer && data.playerId === currentPlayer.id) {
         // This player has been eliminated
-        currentPlayer.status = 'dead'; // Ensure player status is updated
+        if (currentPlayer) {
+          currentPlayer.status = 'dead'; // Ensure player status is updated
+        }
         setScreenFlash('damage');
         setTimeout(() => setScreenFlash('none'), 1000);
         playDamageTakenSound();
@@ -472,14 +476,14 @@ export const GameView: React.FC<GameViewProps> = ({
         }
         
         const eliminator = data.eliminatedBy ? ` by ${data.eliminatedBy}` : '';
-        showNotification(`💀 YOU HAVE BEEN ELIMINATED${eliminator}!`, 'error');
+        handleNotification(`💀 YOU HAVE BEEN ELIMINATED${eliminator}!`, 'error');
         
         // Force a re-render by updating player health
         setPlayerHealth(0);
       } else {
         // Another player was eliminated
         const eliminator = data.eliminatedBy ? ` by ${data.eliminatedBy}` : '';
-        showNotification(`💀 ${data.playerName} eliminated${eliminator}`, 'info');
+        handleNotification(`💀 ${data.playerName} eliminated${eliminator}`, 'info');
       }
     });
 
@@ -508,7 +512,7 @@ export const GameView: React.FC<GameViewProps> = ({
       socket.off('playerRespawn');
       socket.off('playerDisconnected');
     };
-  }, [socket, currentPlayer?.id, showNotification]);
+  }, [socket, currentPlayer, playerHealth, playerScore, playDamageTakenSound, playHitSound]);
 
   // Update player stats when current player changes
   useEffect(() => {
@@ -525,16 +529,20 @@ export const GameView: React.FC<GameViewProps> = ({
     if (currentPoses.length > 0) {
       const video = webcamRef.current?.video;
       if (video) {
-        const state = getCrosshairState();
-        console.log('Pose detection state:', {
-          posesDetected: currentPoses.length,
-          isTargetDetected: state.isTargetDetected,
-          playerMatches: state.debugInfo.playerMatches.length,
-          closestMatchDistance: state.debugInfo.playerMatches[0]?.distance
-        });
+        try {
+          const state = getCrosshairState();
+          console.log('Pose detection state:', {
+            posesDetected: currentPoses.length,
+            isTargetDetected: state.isTargetDetected,
+            playerMatches: state.debugInfo.playerMatches.length,
+            closestMatchDistance: state.debugInfo.playerMatches[0]?.distance
+          });
+        } catch (error) {
+          console.error('Error getting crosshair state:', error);
+        }
       }
     }
-  }, [currentPoses, getCrosshairState, currentPlayer?.status]);
+  }, [currentPoses, currentPlayer?.status]);
 
   // State for notifications
   const [notifications, setNotifications] = useState<Array<{ message: string; type: 'success' | 'error' | 'info' }>>([]);
