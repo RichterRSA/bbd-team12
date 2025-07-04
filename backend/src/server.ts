@@ -29,6 +29,10 @@ interface Game {
   players: Player[];
   status: 'waiting' | 'confirming-colors' | 'in-progress' | 'finished'; // Update this
   settings: GameSettings;
+  score?: { // Add this
+    red: number;
+    blue: number;
+  };
   confirmationPhase?: { // Add this
     currentTargetIndex: number;
     confirmations: { [playerId: string]: string }; // playerId -> detected color
@@ -78,6 +82,10 @@ function broadcastGameList(): void {
     .filter(g => g.status === 'waiting');
   console.log(`Broadcasting updated game list: ${availableGames.length} available games`);
   io.emit('gameList', availableGames);
+  
+  // Also broadcast all games to spectators (including in-progress and finished)
+  const allGames = Object.values(games);
+  io.emit('gameListUpdate', allGames);
 }
 
 function logGameState(gameId: string): void {
@@ -277,6 +285,7 @@ io.on('connection', (socket: Socket) => {
         }],
         status: 'waiting',
         settings: data.gameSettings,
+        score: { red: 0, blue: 0 }, // Initialize score
       };
       
       games[gameId] = game;
@@ -447,6 +456,8 @@ io.on('connection', (socket: Socket) => {
       game.status = 'in-progress';
       
       io.to(gameId).emit('gameStateUpdate', game);
+      io.to(gameId).emit('gameStarted', { gameId });
+      broadcastGameUpdateToSpectators(gameId, game);
       logGameState(gameId);
       broadcastGameList(); // Remove from available games list
     } catch (error) {
@@ -678,8 +689,110 @@ io.on('connection', (socket: Socket) => {
       socket.emit('connectionTestResult', response);
     }
   });
-  //Functions to handle player damage 
-socket.on('playerDamage', (data: { gameId: string; targetPlayerId: string; attackerId?: string}) => {
+
+  // Spectator-specific handlers
+  socket.on('spectatorJoin', (data?: { gameId?: string }) => {
+    try {
+      if (data?.gameId) {
+        // Join specific game as spectator
+        const gameId = data.gameId;
+        const game = games[gameId];
+        
+        console.log(`Spectator ${socket.id} joining game ${gameId}`);
+        
+        if (!game) {
+          console.log(`Game ${gameId} not found for spectator`);
+          socket.emit('gameNotFound', { gameId });
+          return;
+        }
+        
+        // Join the game room
+        socket.join(gameId);
+        console.log(`Spectator ${socket.id} joined room ${gameId}`);
+        
+        // Send current game data
+        socket.emit('gameData', game);
+        
+        // Mark this socket as a spectator
+        socket.data = { ...socket.data, isSpectator: true, gameId };
+        
+        console.log(`Spectator successfully joined game ${gameId}`);
+      } else {
+        // General spectator join (for lobby)
+        console.log(`Spectator ${socket.id} joined lobby`);
+        
+        // Send current game list
+        const availableGames = Object.values(games);
+        socket.emit('gameList', availableGames);
+        
+        // Mark this socket as a spectator
+        socket.data = { ...socket.data, isSpectator: true };
+      }
+    } catch (error) {
+      console.error('Error in spectatorJoin:', error);
+      socket.emit('error', 'Failed to join as spectator');
+    }
+  });
+
+  socket.on('requestGameData', (data: { gameId: string }) => {
+    try {
+      const gameId = data.gameId;
+      const game = games[gameId];
+      
+      if (!game) {
+        console.log(`Game ${gameId} not found for data request`);
+        socket.emit('gameNotFound', { gameId });
+        return;
+      }
+      
+      // Send current game data
+      socket.emit('gameData', game);
+      console.log(`Sent game data for ${gameId} to spectator ${socket.id}`);
+    } catch (error) {
+      console.error('Error in requestGameData:', error);
+      socket.emit('error', 'Failed to get game data');
+    }
+  });
+
+  socket.on('requestCameraFeeds', (data: { gameId: string }) => {
+    try {
+      const gameId = data.gameId;
+      const game = games[gameId];
+      
+      if (!game) {
+        console.log(`Game ${gameId} not found for camera feeds request`);
+        socket.emit('gameNotFound', { gameId });
+        return;
+      }
+      
+      // For now, just acknowledge the request
+      // Camera feeds would require additional implementation
+      socket.emit('cameraFeedsStatus', { gameId, available: false });
+      console.log(`Camera feeds requested for ${gameId} by spectator ${socket.id}`);
+    } catch (error) {
+      console.error('Error in requestCameraFeeds:', error);
+      socket.emit('error', 'Failed to get camera feeds');
+    }
+  });
+
+  // Helper function to broadcast game updates to spectators
+  const broadcastGameUpdateToSpectators = (gameId: string, game: Game) => {
+    try {
+      // Send to all sockets in the game room (including spectators)
+      io.to(gameId).emit('gameStateUpdate', game);
+      
+      // Also send to general spectator lobby for game list updates
+      const availableGames = Object.values(games);
+      io.emit('gameListUpdate', availableGames);
+      
+      console.log(`Broadcasted game update for ${gameId} to all spectators`);
+    } catch (error) {
+      console.error('Error broadcasting to spectators:', error);
+    }
+  };
+
+  // Functions to handle player damage
+  socket.on('playerDamage', (data: { gameId: string; targetPlayerId: string; attackerId?: string}) => {
     try {
         const game = games[data.gameId];
         if(!game || game.status !== 'in-progress'){
@@ -729,6 +842,9 @@ socket.on('playerDamage', (data: { gameId: string; targetPlayerId: string; attac
             health: targetPlayer.health
         });
 
+        // Emit game state update to all spectators
+        io.to(game.id).emit('gameStateUpdate', game);
+
         // Check if player is killed
         if (targetPlayer.health <= 0) {
             targetPlayer.status = 'dead';
@@ -736,6 +852,13 @@ socket.on('playerDamage', (data: { gameId: string; targetPlayerId: string; attac
 
             // Award points to attacker
             attacker.points += 100;
+            
+            // Update team score
+            if (!game.score) {
+                game.score = { red: 0, blue: 0 };
+            }
+            game.score[attacker.team] += 100;
+            
             io.to(game.id).emit('playerScoreUpdate', {
                 playerId: attacker.id,
                 points: attacker.points
@@ -804,6 +927,10 @@ socket.on('playerDamage', (data: { gameId: string; targetPlayerId: string; attac
             
             // Update game status
             game.status = 'finished';
+            
+            // Emit game state update to all players and spectators
+            io.to(game.id).emit('gameStateUpdate', game);
+            
             broadcastGameList();
         }
 

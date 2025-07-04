@@ -125,6 +125,17 @@ export default function SpectatorLobby() {
       );
     });
 
+    socket.on('gameStarted', (data: { gameId: string }) => {
+      console.log('Game started:', data.gameId);
+      setAvailableGames(prev => 
+        prev.map(game => 
+          game.id === data.gameId 
+            ? { ...game, status: 'in-progress' as const, startTime: Date.now() }
+            : game
+        )
+      );
+    });
+
     socket.on('gameEnded', (data: { gameId: string }) => {
       console.log('Game ended:', data.gameId);
       setAvailableGames(prev => 
@@ -140,6 +151,7 @@ export default function SpectatorLobby() {
       socket.off('gameList');
       socket.off('gameListUpdate');
       socket.off('gameUpdate');
+      socket.off('gameStarted');
       socket.off('gameEnded');
     };
   }, [socket]);

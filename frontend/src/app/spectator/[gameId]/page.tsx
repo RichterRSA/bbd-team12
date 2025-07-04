@@ -237,7 +237,7 @@ export default function SpectatorGameView() {
         setCurrentGame(prev => prev ? {
           ...prev,
           status: 'in-progress',
-          score: { red: 0, blue: 0 }
+          startTime: Date.now()
         } : prev);
       }
     });
@@ -272,6 +272,63 @@ export default function SpectatorGameView() {
       }
     });
 
+    // Listen for player score updates
+    socket.on('playerScoreUpdate', (data: { playerId: string; points: number }) => {
+      console.log('Player score update received:', data);
+      setCurrentGame(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          players: prev.players.map(player =>
+            player.id === data.playerId 
+              ? { ...player, points: data.points }
+              : player
+          )
+        };
+      });
+    });
+
+    // Listen for player health updates
+    socket.on('playerHealthUpdate', (data: { playerId: string; health: number }) => {
+      console.log('Player health update received:', data);
+      setCurrentGame(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          players: prev.players.map(player =>
+            player.id === data.playerId 
+              ? { ...player, health: data.health, isAlive: data.health > 0 }
+              : player
+          )
+        };
+      });
+    });
+
+    // Listen for player eliminations
+    socket.on('playerEliminated', (data: { playerId: string; playerName: string; eliminatedBy?: string }) => {
+      console.log('Player eliminated:', data);
+      setCurrentGame(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          players: prev.players.map(player =>
+            player.id === data.playerId 
+              ? { ...player, status: 'dead', isAlive: false, health: 0 }
+              : player
+          )
+        };
+      });
+    });
+
+    // Listen for game won events
+    socket.on('gameWon', (data: { winningTeam: string; topPlayer: { name: string; points: number } }) => {
+      console.log('Game won:', data);
+      setCurrentGame(prev => prev ? {
+        ...prev,
+        status: 'finished'
+      } : prev);
+    });
+
     // When first joining, request the current game state
     socket.emit('requestGameState', { gameId });
     socket.emit('spectatorJoin', { gameId });
@@ -281,6 +338,10 @@ export default function SpectatorGameView() {
       socket.off('gameStarted');
       socket.off('gameStatusUpdate');
       socket.off('gameStateUpdate');
+      socket.off('playerScoreUpdate');
+      socket.off('playerHealthUpdate');
+      socket.off('playerEliminated');
+      socket.off('gameWon');
     };
   }, [socket, gameId]);
 
