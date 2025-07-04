@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Camera, LogOut, Menu, Info } from 'lucide-react';
 import Webcam from "react-webcam";
 import * as poseDetection from '@tensorflow-models/pose-detection';
@@ -353,7 +353,6 @@ export const GameView: React.FC<GameViewProps> = ({
       isShooting
     };
   } catch (error) {
-    console.error('Error in getCrosshairState:', error);
     return { 
       isTargetDetected: false, 
       color: "rgba(128, 128, 128, 0.6)",
@@ -561,12 +560,6 @@ export const GameView: React.FC<GameViewProps> = ({
       if (video) {
         try {
           const state = getCrosshairState();
-          console.log('Pose detection state:', {
-            posesDetected: currentPoses.length,
-            isTargetDetected: state.isTargetDetected,
-            playerMatches: state.debugInfo.playerMatches.length,
-            closestMatchDistance: state.debugInfo.playerMatches[0]?.distance
-          });
         } catch (error) {
           console.error('Error getting crosshair state:', error);
         }
@@ -576,6 +569,7 @@ export const GameView: React.FC<GameViewProps> = ({
 
   // State for notifications
   const [notifications, setNotifications] = useState<Array<{ message: string; type: 'success' | 'error' | 'info' }>>([]);
+  const notificationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Override the showNotification prop with our own implementation
   const handleNotification = useCallback((message: string, type: 'success' | 'error' | 'info') => {
@@ -583,13 +577,28 @@ export const GameView: React.FC<GameViewProps> = ({
     const safeMessage = typeof message === 'string' ? message : String(message);
     const safeType = ['success', 'error', 'info'].includes(type) ? type : 'info';
     
+    // Clear any existing timeout
+    if (notificationTimeoutRef.current) {
+      clearTimeout(notificationTimeoutRef.current);
+    }
+    
     // Only show the latest notification by replacing the entire array
     setNotifications([{ message: safeMessage, type: safeType }]);
     
-    // Remove notification after 3 seconds
-    setTimeout(() => {
+    // Set new timeout
+    notificationTimeoutRef.current = setTimeout(() => {
       setNotifications([]);
+      notificationTimeoutRef.current = null;
     }, 3000);
+  }, []);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (notificationTimeoutRef.current) {
+        clearTimeout(notificationTimeoutRef.current);
+      }
+    };
   }, []);
 
   // Notification Container Component
@@ -711,7 +720,7 @@ export const GameView: React.FC<GameViewProps> = ({
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-black">
-      {/* NotificationContainer is now self-positioning */}
+      {/* Single NotificationContainer positioned at the top */}
       <NotificationContainer />
 
       {/* Show GameEndScreen when game is won */}
@@ -723,11 +732,6 @@ export const GameView: React.FC<GameViewProps> = ({
       {/* Only render game content if not showing end screen */}
       {!gameWonData && (
         <div className="relative w-full h-full">
-          {/* Move notifications to top of screen */}
-          <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50">
-            <NotificationContainer />
-          </div>
-
           {hasCameraPermission ? (
             <div className="relative w-full h-full" style={{ cursor: 'crosshair' }}>
               <Webcam
@@ -787,10 +791,7 @@ export const GameView: React.FC<GameViewProps> = ({
                       </div>
                     </div>
                   </div>
-                </div>              {/* Notifications container - Top 25% of screen */}
-              <div className="absolute top-[10%] left-1/2 transform -translate-x-1/2" style={{ zIndex: 40 }}>
-                <NotificationContainer />
-              </div>
+                </div>
 
               {/* Shoot Button - Bottom Center */}
                 <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2" style={{ zIndex: 50 }}>

@@ -36,12 +36,10 @@ export function drawDetections(
 
   // Validate dimensions
   if (!videoWidth || !videoHeight || !displayWidth || !displayHeight) {
-    console.warn("Invalid video dimensions in drawDetections:", { videoWidth, videoHeight, displayWidth, displayHeight });
     return;
   }
 
   if (!isFinite(videoWidth) || !isFinite(videoHeight) || !isFinite(displayWidth) || !isFinite(displayHeight)) {
-    console.warn("Non-finite video dimensions in drawDetections:", { videoWidth, videoHeight, displayWidth, displayHeight });
     return;
   }
 
