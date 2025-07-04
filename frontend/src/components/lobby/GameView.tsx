@@ -93,6 +93,7 @@ export const GameView: React.FC<GameViewProps> = ({
   const [showInstructions, setShowInstructions] = useState(false);
   const [playerHealth, setPlayerHealth] = useState(currentPlayer?.health || 100);
   const [playerScore, setPlayerScore] = useState(currentPlayer?.points || 0);
+  const [isPlayerAlive, setIsPlayerAlive] = useState(currentPlayer?.status !== 'dead');
   const [lastShotTime, setLastShotTime] = useState(0);
   const SHOOT_COOLDOWN = 100; // 0.1 second cooldown between shots
   const [isShooting, setIsShooting] = useState(false);
@@ -168,9 +169,17 @@ export const GameView: React.FC<GameViewProps> = ({
 
     socket.on('playerRespawn', (data: { playerId: string }) => {
       if (currentPlayer && data.playerId === currentPlayer.id) {
+        console.log('Player respawn event received for current player');
         // Reset all death-related states
         setRespawnCountdown(null);
-        currentPlayer.status = 'alive';
+        setIsPlayerAlive(true);
+        
+        // Ensure player status is set to alive
+        if (currentPlayer) {
+          currentPlayer.status = 'alive';
+          console.log('Player status set to alive:', currentPlayer.status);
+        }
+        
         currentPlayer.health = 100;
         setPlayerHealth(100);
         showNotification('🔄 You have respawned!', 'success');
@@ -179,6 +188,12 @@ export const GameView: React.FC<GameViewProps> = ({
         if (navigator.vibrate) {
           navigator.vibrate([100, 50, 100]);
         }
+        
+        // Force a re-render to ensure status is updated
+        setTimeout(() => {
+          console.log('Post-respawn player status:', currentPlayer?.status);
+          console.log('Post-respawn isPlayerAlive:', true);
+        }, 100);
       }
     });
 
@@ -241,7 +256,13 @@ export const GameView: React.FC<GameViewProps> = ({
   // Function to handle shooting
   const handleShoot = useCallback(() => {
     try {
-      if (currentPlayer?.status === 'dead') {
+      console.log('handleShoot called, currentPlayer status:', currentPlayer?.status);
+      console.log('handleShoot called, isPlayerAlive:', isPlayerAlive);
+      console.log('currentPlayer object:', currentPlayer);
+      
+      // Check both the player status and our local state
+      if (currentPlayer?.status === 'dead' || !isPlayerAlive) {
+        console.log('Shooting blocked: player is dead');
         handleNotification('💀 You are eliminated!', 'error');
         return;
       }
@@ -254,10 +275,12 @@ export const GameView: React.FC<GameViewProps> = ({
 
       // Check if player is in a valid state to shoot
       if (!currentPlayer) {
+        console.log('Shooting blocked: no current player');
         handleNotification('⚠️ Player not found', 'error');
         return;
       }
 
+      console.log('Shooting allowed, proceeding with shot');
       const state = getCrosshairState();
       
       // Always play sound and show animation when attempting to shoot
@@ -333,7 +356,7 @@ export const GameView: React.FC<GameViewProps> = ({
       console.error('Error in handleShoot:', error);
       handleNotification('⚠️ Shooting error occurred', 'error');
     }
-  }, [lastShotTime, socket, gameState?.id, currentPlayer, playShootSound]);
+  }, [lastShotTime, socket, gameState?.id, currentPlayer, playShootSound, isPlayerAlive]);
 
   // Add shoot animation cleanup
   useEffect(() => {
@@ -568,13 +591,22 @@ export const GameView: React.FC<GameViewProps> = ({
         if (data.health <= 0) {
           if (currentPlayer) {
             currentPlayer.status = 'dead'; // Update player status immediately
+            console.log('Player status set to dead due to health <= 0');
           }
+          setIsPlayerAlive(false);
           handleNotification('💀 You have been eliminated!', 'error');
           setScreenFlash('damage');
           
           // Strong vibration for death
           if (navigator.vibrate) {
             navigator.vibrate([500, 200, 500, 200, 500]);
+          }
+        } else {
+          // Ensure player is alive if they have health
+          if (currentPlayer && currentPlayer.status === 'dead' && data.health > 0) {
+            console.log('Player has health but status is dead, fixing status');
+            currentPlayer.status = 'alive';
+            setIsPlayerAlive(true);
           }
         }
       }
@@ -685,6 +717,13 @@ export const GameView: React.FC<GameViewProps> = ({
     if (currentPlayer) {
       setPlayerHealth(currentPlayer.health);
       setPlayerScore(currentPlayer.points);
+      setIsPlayerAlive(currentPlayer.status !== 'dead');
+      console.log('Player stats updated:', {
+        health: currentPlayer.health,
+        score: currentPlayer.points,
+        status: currentPlayer.status,
+        isAlive: currentPlayer.status !== 'dead'
+      });
     }
   }, [currentPlayer]);
 
