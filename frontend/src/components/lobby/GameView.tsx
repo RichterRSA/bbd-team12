@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Camera, LogOut, Menu, Info } from 'lucide-react';
 import Webcam from "react-webcam";
 import * as poseDetection from '@tensorflow-models/pose-detection';
@@ -265,25 +265,36 @@ export const GameView: React.FC<GameViewProps> = ({
 
   // Update the crosshair state logic to include shooting animation
   const getCrosshairState = useCallback(() => {
-    if (currentPlayer?.status === 'dead') {
-      return { 
-        isTargetDetected: false, 
-        color: "rgba(128, 128, 128, 0.6)",
-        debugInfo: { detectedColor: null, playerMatches: [] },
-        isShooting: false
-      };
-    }
+    try {
+      if (currentPlayer?.status === 'dead') {
+        return { 
+          isTargetDetected: false, 
+          color: "rgba(128, 128, 128, 0.6)",
+          debugInfo: { detectedColor: null, playerMatches: [] },
+          isShooting: false
+        };
+      }
 
-    if (!currentPoses || currentPoses.length === 0 || !webcamRef.current?.video) {
-      return { 
-        isTargetDetected: false, 
-        color: "rgba(128, 128, 128, 0.6)",
-        debugInfo: { detectedColor: null, playerMatches: [] },
-        isShooting: false
-      };
-    }
+      if (!currentPoses || currentPoses.length === 0 || !webcamRef.current?.video) {
+        return { 
+          isTargetDetected: false, 
+          color: "rgba(128, 128, 128, 0.6)",
+          debugInfo: { detectedColor: null, playerMatches: [] },
+          isShooting: false
+        };
+      }
 
-    const video = webcamRef.current.video;
+      const video = webcamRef.current.video;
+      
+      // Check if video is ready
+      if (!video || video.readyState < 2) {
+        return { 
+          isTargetDetected: false, 
+          color: "rgba(128, 128, 128, 0.6)",
+          debugInfo: { detectedColor: null, playerMatches: [] },
+          isShooting: false
+        };
+      }
 
     // Check if any person is in the crosshair with high confidence
     const personInCrosshair = currentPoses.some(pose => {
@@ -341,7 +352,26 @@ export const GameView: React.FC<GameViewProps> = ({
       },
       isShooting
     };
+  } catch (error) {
+    console.error('Error in getCrosshairState:', error);
+    return { 
+      isTargetDetected: false, 
+      color: "rgba(128, 128, 128, 0.6)",
+      debugInfo: { detectedColor: null, playerMatches: [] },
+      isShooting: false
+    };
+  }
   }, [currentPoses, webcamRef, gameState?.players, isShooting, currentPlayer?.status]);
+
+  // Memoize the crosshair state to avoid multiple calls in render
+  const crosshairState = useMemo(() => {
+    const state = getCrosshairState();
+    // Ensure color is always a valid string to prevent React error #31
+    return {
+      ...state,
+      color: typeof state.color === 'string' ? state.color : "rgba(128, 128, 128, 0.6)"
+    };
+  }, [getCrosshairState]);
 
   const parseRgb = (color: string) => {
     const match = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
@@ -549,7 +579,11 @@ export const GameView: React.FC<GameViewProps> = ({
 
   // Override the showNotification prop with our own implementation
   const handleNotification = useCallback((message: string, type: 'success' | 'error' | 'info') => {
-    setNotifications(prev => [...prev, { message, type }]);
+    // Ensure message is always a string to prevent React error #31
+    const safeMessage = typeof message === 'string' ? message : String(message);
+    const safeType = ['success', 'error', 'info'].includes(type) ? type : 'info';
+    
+    setNotifications(prev => [...prev, { message: safeMessage, type: safeType }]);
     // Remove notification after 3 seconds
     setTimeout(() => {
       setNotifications(prev => prev.slice(1));
@@ -778,25 +812,24 @@ export const GameView: React.FC<GameViewProps> = ({
                       isShooting ? 'scale-90' : ''
                     }`}
                     style={{ 
-                      borderColor: getCrosshairState().color, 
-                      backgroundColor: getCrosshairState().color.replace('0.6', '0.1'),
+                      borderColor: crosshairState.color, 
+                      backgroundColor: crosshairState.color.includes('0.6') ? crosshairState.color.replace('0.6', '0.1') : crosshairState.color,
                       transition: 'all 0.2s ease'
                     }}
                   >
                     <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
-                      <div className="w-8 h-1" style={{ backgroundColor: getCrosshairState().color }}></div>
+                      <div className="w-8 h-1" style={{ backgroundColor: crosshairState.color }}></div>
                       <div className="w-1 h-8 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"
-                           style={{ backgroundColor: getCrosshairState().color }}></div>
+                           style={{ backgroundColor: crosshairState.color }}></div>
                     </div>
                   </div>
                 </div>
 
                 {/* Target Detection Indicator */}
                 {(() => {
-                  const state = getCrosshairState();
-                  if (state.isTargetDetected && state.debugInfo.playerMatches.length > 0) {
+                  if (crosshairState.isTargetDetected && crosshairState.debugInfo.playerMatches.length > 0) {
                     // Find the player with the lowest color distance
-                    const closestMatch = state.debugInfo.playerMatches.reduce((prev, current) => 
+                    const closestMatch = crosshairState.debugInfo.playerMatches.reduce((prev, current) => 
                       prev.distance < current.distance ? prev : current
                     );
                     
